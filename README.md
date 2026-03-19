@@ -91,3 +91,4 @@ If you would like to contribute to this template then please fork it and send a 
 ## This template is amazing! How can I ever repay you?
 
 There's no need to credit me in your code for this template, just go forth and use it to make the WordPress experience a little better.
+#SakayCDO
