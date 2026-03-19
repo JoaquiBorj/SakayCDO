@@ -1093,8 +1093,8 @@ class PHMapPlugin {
         global $wpdb;
         
         $atts = shortcode_atts([
-            'height' => '600px',
-            'zoom' => 10,
+            'height' => '92vh',
+            'zoom' => 12,
         ], $atts, 'ph_map');
 
         $buttons = $wpdb->get_results("SELECT * FROM $this->table_name ORDER BY sort_order ASC, id ASC");
@@ -1105,206 +1105,646 @@ class PHMapPlugin {
         if ($height === '') { $height = '600px'; }
         $zoom = max(3, min(18, (int)$atts['zoom']));
 
+        $build_route_meta = function($label, $description) {
+            $clean_label = trim(preg_replace('/\s+/', ' ', wp_strip_all_tags((string)$label)));
+            $clean_description = trim(preg_replace('/\s+/', ' ', wp_strip_all_tags((string)$description)));
+
+            $start = '';
+            $end = '';
+            $via = '';
+
+            if (preg_match('/^(.*?)\s*(?:-|–|—)\s*(.+)$/u', $clean_label, $parts)) {
+                $start = trim($parts[1]);
+                $end = trim($parts[2]);
+
+                if (preg_match('/^(.+?)\s+(?:via)\s+(.+)$/i', $end, $end_parts)) {
+                    $end = trim($end_parts[1]);
+                    $via = trim($end_parts[2]);
+                }
+            }
+
+            if ($via === '' && preg_match('/\bvia\b\s+(.+)$/i', $clean_description, $via_parts)) {
+                $via = trim($via_parts[1]);
+            }
+
+            $main_label = $clean_label;
+            if ($start !== '' && $end !== '') {
+                $main_label = $start . ' -> ' . $end;
+            }
+
+            $inbound_label = 'Inbound';
+            $outbound_label = 'Outbound';
+            if ($start !== '' && $end !== '') {
+                $inbound_label = 'To ' . $end;
+                $outbound_label = 'To ' . $start;
+            }
+
+            $search_text = strtolower(trim(implode(' ', array_filter([
+                $clean_label,
+                $main_label,
+                $start,
+                $end,
+                $via,
+                $clean_description
+            ]))));
+
+            return [
+                'main_label' => $main_label,
+                'via' => $via,
+                'start' => $start,
+                'end' => $end,
+                'inbound_label' => $inbound_label,
+                'outbound_label' => $outbound_label,
+                'search_text' => $search_text,
+            ];
+        };
+
+        $button_view_data = array_map(function($btn) use ($build_route_meta) {
+            $waypoints = json_decode($btn->waypoints, true);
+            if (!is_array($waypoints)) {
+                $waypoints = [];
+            }
+
+            $route = json_decode($btn->route_data, true);
+            if (!is_array($route)) {
+                $route = [];
+            }
+
+            $multiple_paths = isset($btn->multiple_paths) ? json_decode($btn->multiple_paths, true) : [];
+            if (!is_array($multiple_paths)) {
+                $multiple_paths = [];
+            }
+
+            $has_inbound = count($waypoints) >= 2;
+            $has_outbound = false;
+
+            foreach ($multiple_paths as $path) {
+                if (isset($path['waypoints']) && is_array($path['waypoints']) && count($path['waypoints']) >= 2) {
+                    $has_outbound = true;
+                    break;
+                }
+            }
+
+            $description = isset($btn->description) ? $btn->description : '';
+            $meta = $build_route_meta($btn->label, $description);
+
+            return [
+                'label' => $btn->label,
+                'description' => $description,
+                'waypoints' => $waypoints,
+                'route' => $route,
+                'is_loop' => isset($btn->is_loop) ? (bool)$btn->is_loop : false,
+                'direction' => isset($btn->direction) ? $btn->direction : 'inbound',
+                'color' => isset($btn->color) ? $btn->color : '#ff2f6d',
+                'route_type' => isset($btn->route_type) ? $btn->route_type : 'transportation',
+                'multiple_paths' => $multiple_paths,
+                'has_inbound' => $has_inbound,
+                'has_outbound' => $has_outbound,
+                'main_label' => $meta['main_label'],
+                'via' => $meta['via'],
+                'start' => $meta['start'],
+                'end' => $meta['end'],
+                'inbound_label' => $meta['inbound_label'],
+                'outbound_label' => $meta['outbound_label'],
+                'search_text' => $meta['search_text'],
+                'from_search' => strtolower(trim(implode(' ', array_filter([
+                    $meta['start'],
+                    $btn->label,
+                    $description
+                ])))),
+                'to_search' => strtolower(trim(implode(' ', array_filter([
+                    $meta['end'],
+                    $btn->label,
+                    $description
+                ])))),
+            ];
+        }, $buttons);
+
         ob_start();
         ?>
         <style>
             #<?php echo $id; ?> { 
-                --ph-accent: #ff2f6d; 
-                --ph-border: #e1e5e9; 
-                --ph-panel: #ffffff; 
-                --ph-text: #2c3e50;
-                --ph-text-light: #7f8c8d;
-                color: var(--ph-text); 
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                --ph-accent: #1f7a8c;
+                --ph-border: #d8dde3;
+                --ph-panel: #ffffff;
+                --ph-bg: #f4f7fb;
+                --ph-text: #1f2a37;
+                --ph-text-light: #4b5563;
+                --ph-focus: #0e7490;
+                color: var(--ph-text);
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             }
-            #<?php echo $id; ?> .phmap-controls { 
-                display: grid; 
-                grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); 
-                gap: 16px; 
-                margin: 20px 0; 
-                padding: 20px;
-                background: var(--ph-panel);
+
+            #<?php echo $id; ?> .phmap-shell {
+                position: relative;
+                border: 1px solid var(--ph-border);
+                border-radius: 16px;
+                overflow: hidden;
+                height: <?php echo esc_attr($height); ?>;
+                min-height: 560px;
+                background: #dbe8f3;
+            }
+
+            #<?php echo $id; ?> .phmap-map-canvas {
+                position: absolute;
+                inset: 0;
+                z-index: 1;
+            }
+
+            #<?php echo $id; ?> .phmap-floating-status {
+                position: absolute;
+                left: 14px;
+                top: 14px;
+                z-index: 900;
+                max-width: min(420px, calc(100% - 28px));
+                background: rgba(20, 32, 47, 0.72);
+                color: #f8fafc;
+                border: 1px solid rgba(255, 255, 255, 0.2);
+                backdrop-filter: blur(10px);
+                -webkit-backdrop-filter: blur(10px);
+                border-radius: 10px;
+                padding: 8px 12px;
+                font-size: 12px;
+                line-height: 1.45;
+            }
+
+            #<?php echo $id; ?> .phmap-bottom-sheet {
+                position: absolute;
+                left: 12px;
+                right: 12px;
+                bottom: 12px;
+                z-index: 1000;
+                background: rgba(245, 250, 255, 0.92);
+                border: 1px solid rgba(203, 213, 225, 0.9);
+                border-radius: 16px;
+                backdrop-filter: blur(12px);
+                -webkit-backdrop-filter: blur(12px);
+                box-shadow: 0 20px 40px rgba(15, 23, 42, 0.25);
+                padding: 10px;
+                height: min(78%, 620px);
+                max-height: calc(100% - 24px);
+                overflow: hidden;
+                transition: transform 0.28s ease;
+                display: flex;
+                flex-direction: column;
+            }
+
+            #<?php echo $id; ?>.phmap-sheet-collapsed .phmap-bottom-sheet {
+                transform: translateY(calc(100% - 74px));
+            }
+
+            #<?php echo $id; ?> .phmap-sheet-handle {
+                width: 56px;
+                height: 5px;
+                border-radius: 999px;
+                background: #93a9bc;
+                margin: 2px auto 8px;
+                border: 0;
+                display: block;
+                cursor: pointer;
+                padding: 0;
+            }
+
+            #<?php echo $id; ?> .phmap-sheet-head {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 8px;
+                padding: 2px 4px 8px;
+            }
+
+            #<?php echo $id; ?> .phmap-sheet-title {
+                font-size: 14px;
+                font-weight: 700;
+                color: #0f172a;
+            }
+
+            #<?php echo $id; ?> .phmap-sheet-subtitle {
+                font-size: 12px;
+                color: #475569;
+            }
+
+            #<?php echo $id; ?> .phmap-sheet-content {
+                overflow-y: auto;
+                flex: 1 1 auto;
+                min-height: 0;
+                padding-right: 2px;
+            }
+
+            #<?php echo $id; ?> .phmap-section {
+                background: rgba(255, 255, 255, 0.9);
+                border: 1px solid rgba(203, 213, 225, 0.95);
                 border-radius: 12px;
-                box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+                padding: 10px;
+                margin-bottom: 8px;
             }
-            #<?php echo $id; ?> .phmap-btn { 
-                appearance: none; 
-                border: 2px solid var(--ph-border); 
-                background: var(--ph-panel); 
-                color: var(--ph-text); 
-                padding: 16px 20px; 
-                border-radius: 12px; 
-                cursor: pointer; 
+
+            #<?php echo $id; ?> .phmap-section-title {
+                font-size: 15px;
+                font-weight: 700;
+                margin-bottom: 4px;
+                color: #182433;
+            }
+
+            #<?php echo $id; ?> .phmap-section-subtitle {
+                margin: 0;
+                font-size: 13px;
+                color: var(--ph-text-light);
+            }
+
+            #<?php echo $id; ?> .phmap-toolbar {
+                display: flex;
+                gap: 12px;
+                align-items: center;
+                justify-content: space-between;
+                flex-wrap: wrap;
+                margin-top: 8px;
+            }
+
+            #<?php echo $id; ?> .phmap-search-wrap {
+                flex: 1 1 280px;
+            }
+
+            #<?php echo $id; ?> .phmap-search-grid {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 8px;
+                width: 100%;
+            }
+
+            #<?php echo $id; ?> .phmap-search-field {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+            }
+
+            #<?php echo $id; ?> .phmap-search-label {
+                font-size: 12px;
+                font-weight: 600;
+                color: #334155;
+            }
+
+            #<?php echo $id; ?> .phmap-search-input {
+                width: 100%;
+                border: 1px solid var(--ph-border);
+                border-radius: 10px;
+                background: #fff;
+                font-size: 15px;
+                line-height: 1.35;
+                padding: 12px 14px;
+                color: var(--ph-text);
+            }
+
+            #<?php echo $id; ?> .phmap-search-input:focus {
+                outline: 2px solid rgba(14, 116, 144, 0.2);
+                border-color: var(--ph-focus);
+            }
+
+            #<?php echo $id; ?> .phmap-result-count {
+                font-size: 13px;
+                color: var(--ph-text-light);
+                white-space: nowrap;
+            }
+
+            #<?php echo $id; ?> .phmap-result-detail {
+                font-size: 12px;
+                color: #64748b;
+                margin-top: 2px;
+                min-height: 20px;
+            }
+
+            #<?php echo $id; ?> .phmap-controls {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+                gap: 10px;
+            }
+
+            #<?php echo $id; ?> .phmap-btn {
+                appearance: none;
+                border: 1px solid var(--ph-border);
+                background: #fff;
+                color: var(--ph-text);
+                padding: 14px;
+                border-radius: 12px;
+                cursor: pointer;
                 transition: all 0.3s ease;
                 position: relative;
-                overflow: hidden;
                 text-align: left;
-                min-height: 80px;
+                min-height: 112px;
                 display: flex;
                 flex-direction: column;
                 justify-content: center;
             }
-            #<?php echo $id; ?> .phmap-btn:hover { 
-                transform: translateY(-2px); 
-                box-shadow: 0 4px 16px rgba(0,0,0,0.15);
-                border-color: var(--ph-accent);
+
+            #<?php echo $id; ?> .phmap-btn:hover {
+                border-color: #aeb8c4;
+                box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
             }
-            #<?php echo $id; ?> .phmap-btn.active { 
-                background: var(--ph-accent); 
-                border-color: var(--ph-accent); 
-                color: white;
-                box-shadow: 0 4px 16px rgba(255,47,109,0.3);
+
+            #<?php echo $id; ?> .phmap-btn.active {
+                border-color: var(--ph-focus);
+                box-shadow: 0 0 0 2px rgba(14, 116, 144, 0.22), 0 6px 18px rgba(15, 23, 42, 0.12);
+                background: #f3fbfd;
             }
+
+            #<?php echo $id; ?> .phmap-btn.is-hidden {
+                display: none;
+            }
+
             #<?php echo $id; ?> .phmap-btn-content {
                 position: relative;
                 z-index: 2;
             }
-            #<?php echo $id; ?> .phmap-btn-title {
-                font-size: 16px;
-                font-weight: 600;
-                margin-bottom: 4px;
-                display: flex;
-                align-items: center;
-                gap: 8px;
+
+            #<?php echo $id; ?> .phmap-btn-badge {
+                display: inline-block;
+                font-size: 11px;
+                letter-spacing: 0.04em;
+                text-transform: uppercase;
+                color: #5b6777;
+                background: #eef2f7;
+                border-radius: 999px;
+                padding: 4px 8px;
+                margin-bottom: 8px;
             }
+
+            #<?php echo $id; ?> .phmap-btn-title {
+                font-size: 17px;
+                font-weight: 700;
+                line-height: 1.3;
+                margin-bottom: 6px;
+            }
+
+            #<?php echo $id; ?> .phmap-btn-via,
             #<?php echo $id; ?> .phmap-btn-description {
                 font-size: 13px;
-                opacity: 0.8;
                 line-height: 1.4;
-                margin-top: 4px;
+                color: var(--ph-text-light);
             }
-            #<?php echo $id; ?> .phmap-btn-meta {
-                font-size: 11px;
-                opacity: 0.7;
-                margin-top: 8px;
-                display: flex;
-                gap: 12px;
-                align-items: center;
+
+            #<?php echo $id; ?> .phmap-btn-via {
+                margin-bottom: 6px;
             }
+
             #<?php echo $id; ?> .phmap-direction-toggle {
                 display: flex;
-                gap: 4px;
-                margin-top: 8px;
+                flex-wrap: wrap;
+                gap: 8px;
+                margin-top: 10px;
             }
+
             #<?php echo $id; ?> .phmap-direction-btn {
-                background: rgba(255,255,255,0.2);
-                border: 1px solid rgba(255,255,255,0.3);
-                color: inherit;
-                padding: 4px 8px;
-                border-radius: 4px;
-                font-size: 11px;
+                background: #f7fafc;
+                border: 1px solid #d6dce4;
+                color: #334155;
+                padding: 8px 10px;
+                border-radius: 8px;
+                font-size: 12px;
+                line-height: 1.25;
+                min-height: 36px;
                 cursor: pointer;
                 transition: all 0.2s ease;
             }
+
             #<?php echo $id; ?> .phmap-direction-btn:hover {
-                background: rgba(255,255,255,0.3);
+                background: #ecf3fb;
+                border-color: #afc3da;
             }
+
             #<?php echo $id; ?> .phmap-direction-btn.active {
-                background: rgba(255,255,255,0.9);
-                color: #333;
+                background: #dff2f7;
+                color: #0f4f5b;
+                border-color: #79b8c4;
                 font-weight: 600;
             }
-            #<?php echo $id; ?> .phmap-btn:not(.active) .phmap-direction-btn {
-                background: rgba(0,0,0,0.1);
-                border-color: rgba(0,0,0,0.2);
+
+            #<?php echo $id; ?> .phmap-action-chips {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px;
             }
-            #<?php echo $id; ?> .phmap-btn:not(.active) .phmap-direction-btn:hover {
-                background: rgba(0,0,0,0.15);
+
+            #<?php echo $id; ?> .phmap-action-chip {
+                border: 1px solid #bfd0e0;
+                background: rgba(255, 255, 255, 0.9);
+                color: #1f2937;
+                border-radius: 999px;
+                font-size: 12px;
+                line-height: 1.2;
+                padding: 8px 12px;
+                cursor: pointer;
+                min-height: 34px;
+                transition: background 0.2s ease, border-color 0.2s ease;
             }
-            #<?php echo $id; ?> .phmap-btn:not(.active) .phmap-direction-btn.active {
-                background: rgba(0,0,0,0.2);
-                color: #333;
-                border-color: rgba(0,0,0,0.3);
+
+            #<?php echo $id; ?> .phmap-action-chip:hover {
+                background: #eff6ff;
+                border-color: #9fb8cf;
             }
+
+            #<?php echo $id; ?> .phmap-map-status {
+                background: #ffffff;
+                border: 1px solid var(--ph-border);
+                border-left: 4px solid var(--ph-focus);
+                border-radius: 10px;
+                padding: 10px 12px;
+                color: #243447;
+                font-size: 13px;
+                line-height: 1.4;
+            }
+
+            #<?php echo $id; ?> .phmap-selected-summary {
+                background: #f8fbff;
+                border: 1px solid #d9e6ef;
+                border-left: 4px solid #5aa0b2;
+                border-radius: 10px;
+                padding: 10px 12px;
+            }
+
+            #<?php echo $id; ?> .phmap-selected-route-name {
+                font-size: 14px;
+                font-weight: 700;
+                color: #1f2a37;
+                margin-bottom: 4px;
+            }
+
+            #<?php echo $id; ?> .phmap-selected-route-meta {
+                font-size: 12px;
+                color: #4b5563;
+                line-height: 1.45;
+            }
+
             #<?php echo $mapId; ?> { 
-                height: <?php echo esc_attr($height); ?>; 
+                height: 100%; 
                 width: 100%; 
-                border: 1px solid var(--ph-border); 
-                border-radius: 12px;
-                box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+                border: 0;
             }
             #<?php echo $mapId; ?> .leaflet-control-attribution a { 
                 color: var(--ph-accent); 
             }
-            
-            /* Direction indicators */
-            #<?php echo $id; ?> .direction-inbound .phmap-btn-title::before { content: '⬅️'; }
-            #<?php echo $id; ?> .direction-outbound .phmap-btn-title::before { content: '➡️'; }
-            #<?php echo $id; ?> .direction-neutral .phmap-btn-title::before { content: '🔄'; }
-            #<?php echo $id; ?> .loop-btn .phmap-btn-title::after { content: '🔄'; margin-left: 4px; }
+
+            #<?php echo $id; ?> .phmap-help {
+                margin-top: 8px;
+                font-size: 12px;
+                color: #334155;
+            }
+
+            @media (max-width: 860px) {
+                #<?php echo $id; ?> .phmap-controls {
+                    grid-template-columns: 1fr;
+                }
+            }
+
+            @media (max-width: 640px) {
+                #<?php echo $id; ?> .phmap-shell {
+                    min-height: 80vh;
+                }
+
+                #<?php echo $id; ?> .phmap-btn {
+                    padding: 12px;
+                    min-height: 104px;
+                }
+
+                #<?php echo $id; ?> .phmap-btn-title {
+                    font-size: 16px;
+                }
+
+                #<?php echo $id; ?> .phmap-direction-btn {
+                    width: 100%;
+                }
+
+                #<?php echo $id; ?> .phmap-search-grid {
+                    grid-template-columns: 1fr;
+                }
+
+                #<?php echo $id; ?> .phmap-bottom-sheet {
+                    left: 8px;
+                    right: 8px;
+                    bottom: 8px;
+                    height: min(86%, 560px);
+                    max-height: calc(100% - 16px);
+                }
+
+                #<?php echo $id; ?>.phmap-sheet-collapsed .phmap-bottom-sheet {
+                    transform: translateY(calc(100% - 66px));
+                }
+
+                #<?php echo $id; ?> .phmap-action-chips {
+                    gap: 6px;
+                }
+
+                #<?php echo $id; ?> .phmap-action-chip {
+                    font-size: 11px;
+                    padding: 8px 10px;
+                }
+            }
         </style>
 
-        <div id="<?php echo $id; ?>" class="phmap">
-            <div class="phmap-controls">
-                <?php foreach ($buttons as $index => $button): ?>
-                    <?php 
-                    $is_loop = isset($button->is_loop) ? (bool)$button->is_loop : false;
-                    $direction = isset($button->direction) ? $button->direction : 'inbound';
-                    $color = isset($button->color) ? $button->color : '#ff2f6d';
-                    $description = isset($button->description) ? $button->description : '';
-                    $route_type = isset($button->route_type) ? $button->route_type : 'transportation';
-                    
-                    // Check for multiple paths
-                    $multiple_paths = isset($button->multiple_paths) ? json_decode($button->multiple_paths, true) : [];
-                    $has_multiple_paths = is_array($multiple_paths) && count($multiple_paths) > 0;
-                    $has_inbound = json_decode($button->waypoints, true) && count(json_decode($button->waypoints, true)) >= 2;
-                    $has_outbound = $has_multiple_paths && isset($multiple_paths[0]['waypoints']) && count($multiple_paths[0]['waypoints']) >= 2;
-                    
-                    $type_icon = $route_type === 'transportation' ? '🚌' : '👤';
-                    $loop_class = $is_loop ? 'loop-btn' : '';
-                    $multi_path_class = $has_multiple_paths ? 'multi-path-btn' : '';
+        <div id="<?php echo $id; ?>" class="phmap phmap-no-selection phmap-sheet-expanded">
+            <div class="phmap-shell">
+                <div class="phmap-map-canvas">
+                    <div id="<?php echo $mapId; ?>" aria-label="Map of Cagayan de Oro"></div>
+                    <div class="phmap-floating-status">Focused on Cagayan de Oro commuter routes.</div>
+                </div>
+
+                <div class="phmap-bottom-sheet" role="region" aria-label="Route finder">
+                    <button type="button" class="phmap-sheet-handle" aria-label="Toggle route panel"></button>
+                    <div class="phmap-sheet-head">
+                        <div>
+                            <div class="phmap-sheet-title">Find a Route</div>
+                            <div class="phmap-sheet-subtitle">Enter your From and To, then choose a route to preview it on the map.</div>
+                        </div>
+                        <div class="phmap-result-count" aria-live="polite">Enter From/To to search</div>
+                    </div>
+                    <div class="phmap-sheet-content">
+                        <div class="phmap-section phmap-search-section">
+                            <div class="phmap-toolbar">
+                                <div class="phmap-search-wrap">
+                                    <div class="phmap-search-grid">
+                                        <label class="phmap-search-field">
+                                            <span class="phmap-search-label">From</span>
+                                            <input type="search" class="phmap-search-input phmap-from-input" placeholder="e.g., Agora Terminal" aria-label="From location">
+                                        </label>
+                                        <label class="phmap-search-field">
+                                            <span class="phmap-search-label">To</span>
+                                            <input type="search" class="phmap-search-input phmap-to-input" placeholder="e.g., Divisoria" aria-label="To location">
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="phmap-result-detail" aria-live="polite"></div>
+                        </div>
+
+                        <?php if (!empty($button_view_data)): ?>
+                            <div class="phmap-section">
+                                <div class="phmap-action-chips">
+                                    <button type="button" class="phmap-action-chip phmap-view-all" data-action="view-all">Show All Routes</button>
+                                    <button type="button" class="phmap-action-chip phmap-clear">Reset Map</button>
+                                </div>
+                            </div>
+                        <?php endif; ?>
+
+                        <div class="phmap-section phmap-selection-section">
+                            <div class="phmap-section-title">Selected Route</div>
+                            <div class="phmap-selected-summary" aria-live="polite">
+                                <div class="phmap-selected-route-name">No route selected yet</div>
+                                <div class="phmap-selected-route-meta">Search and choose a route to preview direction and path details.</div>
+                            </div>
+                            <div class="phmap-help">Map updates as soon as you select a route card or direction.</div>
+                            <div class="phmap-map-status" aria-live="polite">Select a route to view it on the map.</div>
+                        </div>
+
+                        <div class="phmap-section phmap-results-section">
+                        <div class="phmap-section-title">Route Results</div>
+                        <p class="phmap-section-subtitle">Choose a route card to preview and plot it on the map.</p>
+                        <div class="phmap-controls">
+                <?php foreach ($button_view_data as $index => $button): ?>
+                    <?php
+                    $is_loop = $button['is_loop'];
+                    $color = $button['color'];
+                    $description = $button['description'];
+                    $route_type = $button['route_type'];
+                    $has_inbound = $button['has_inbound'];
+                    $has_outbound = $button['has_outbound'];
+                    $badge_label = $route_type === 'transportation' ? 'Commuter route' : 'Personal route';
                     ?>
                     <button type="button" 
-                            class="phmap-btn phmap-path-btn <?php echo $loop_class; ?> <?php echo $multi_path_class; ?>" 
+                            class="phmap-btn phmap-path-btn" 
                             data-path-index="<?php echo $index; ?>"
                             data-active-direction="both"
+                            data-search="<?php echo esc_attr($button['search_text']); ?>"
+                            data-from-search="<?php echo esc_attr($button['from_search']); ?>"
+                            data-to-search="<?php echo esc_attr($button['to_search']); ?>"
                             style="--ph-accent: <?php echo esc_attr($color); ?>;"
                             title="<?php echo esc_attr($description); ?>">
                         <div class="phmap-btn-content">
-                            <div class="phmap-btn-title">
-                                <?php echo $type_icon; ?> <?php echo esc_html($button->label); ?>
-                                <?php if ($is_loop): ?> 🔄<?php endif; ?>
-                            </div>
+                            <div class="phmap-btn-badge"><?php echo esc_html($badge_label); ?><?php if ($is_loop): ?> | Loop<?php endif; ?></div>
+                            <div class="phmap-btn-title"><?php echo esc_html($button['main_label']); ?></div>
+                            <?php if (!empty($button['via'])): ?>
+                                <div class="phmap-btn-via">Via <?php echo esc_html($button['via']); ?></div>
+                            <?php endif; ?>
                             <?php if ($description): ?>
                                 <div class="phmap-btn-description">
-                                    <?php echo esc_html($description); ?>
+                                    <?php echo esc_html(wp_trim_words($description, 16, '...')); ?>
                                 </div>
                             <?php endif; ?>
                             <?php if ($has_inbound || $has_outbound): ?>
                                 <div class="phmap-direction-toggle">
                                     <?php if ($has_inbound): ?>
-                                        <span class="phmap-direction-btn" data-direction="inbound" data-path-index="<?php echo $index; ?>">🔴 Inbound</span>
+                                        <span class="phmap-direction-btn" data-direction="inbound" data-path-index="<?php echo $index; ?>"><?php echo esc_html($button['inbound_label']); ?></span>
                                     <?php endif; ?>
                                     <?php if ($has_outbound): ?>
-                                        <span class="phmap-direction-btn" data-direction="outbound" data-path-index="<?php echo $index; ?>">🔵 Outbound</span>
+                                        <span class="phmap-direction-btn" data-direction="outbound" data-path-index="<?php echo $index; ?>"><?php echo esc_html($button['outbound_label']); ?></span>
                                     <?php endif; ?>
                                 </div>
                             <?php endif; ?>
                         </div>
                     </button>
                 <?php endforeach; ?>
-                <?php if (!empty($buttons)): ?>
-                    <button type="button" class="phmap-btn phmap-view-all" data-action="view-all">
-                        <div class="phmap-btn-content">
-                            <div class="phmap-btn-title">🗺️ View All Routes</div>
-                            <div class="phmap-btn-description">Display all routes simultaneously</div>
                         </div>
-                    </button>
-                    <button type="button" class="phmap-btn phmap-clear">
-                        <div class="phmap-btn-content">
-                            <div class="phmap-btn-title">Clear All Paths</div>
                         </div>
-                    </button>
-                <?php endif; ?>
-            </div>
-            <div id="<?php echo $mapId; ?>" aria-label="Map of Cagayan de Oro"></div>
-            <div class="phmap-help">
-                <?php if (!empty($buttons)): ?>
-                    <strong>How to use:</strong> Click any route button above to display the path on the map. 🚌 = Transportation routes, 👤 = Personal routes.
-                    <br><small>• Individual buttons: 🔴 Red = Inbound, 🔵 Blue = Outbound • View All Routes: Each button gets a unique color with dashed (inbound) and dotted (outbound) lines • 🔄 = Loop routes</small>
-                <?php else: ?>
-                    No routes configured yet. <?php if (current_user_can('manage_options')): ?><a href="<?php echo admin_url('admin.php?page=ph-map-buttons'); ?>">Configure routes in admin panel</a>.<?php endif; ?>
-                <?php endif; ?>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -1312,23 +1752,115 @@ class PHMapPlugin {
             var root = document.getElementById('<?php echo $id; ?>');
             if (!root) return;
             var mapEl = document.getElementById('<?php echo $mapId; ?>');
+            var mapStatusEl = root.querySelector('.phmap-map-status');
+            var resultCountEl = root.querySelector('.phmap-result-count');
+            var resultDetailEl = root.querySelector('.phmap-result-detail');
+            var fromInputEl = root.querySelector('.phmap-from-input');
+            var toInputEl = root.querySelector('.phmap-to-input');
+            var selectedRouteNameEl = root.querySelector('.phmap-selected-route-name');
+            var selectedRouteMetaEl = root.querySelector('.phmap-selected-route-meta');
+            var sheetHandleEl = root.querySelector('.phmap-sheet-handle');
 
-            var buttonConfigs = <?php echo json_encode(array_map(function($btn) {
-                $multiple_paths = isset($btn->multiple_paths) ? json_decode($btn->multiple_paths, true) : [];
-                if (!is_array($multiple_paths)) $multiple_paths = [];
-                
-                return array(
-                    'label' => $btn->label,
-                    'description' => isset($btn->description) ? $btn->description : '',
-                    'waypoints' => json_decode($btn->waypoints, true),
-                    'route' => json_decode($btn->route_data, true),
-                    'is_loop' => isset($btn->is_loop) ? (bool)$btn->is_loop : false,
-                    'direction' => isset($btn->direction) ? $btn->direction : 'inbound',
-                    'color' => isset($btn->color) ? $btn->color : '#ff2f6d',
-                    'route_type' => isset($btn->route_type) ? $btn->route_type : 'transportation',
-                    'multiple_paths' => $multiple_paths
-                );
-            }, $buttons), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?>;
+            var buttonConfigs = <?php echo json_encode($button_view_data, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?>;
+
+            function updateMapStatus(title, subtitle) {
+                if (!mapStatusEl) return;
+                var text = title || 'Select a route to view it on the map.';
+                if (subtitle) {
+                    text += ' ' + subtitle;
+                }
+                mapStatusEl.textContent = text;
+            }
+
+            function updateSelectedRouteSummary(config, activeDirection) {
+                if (!selectedRouteNameEl || !selectedRouteMetaEl) return;
+
+                if (!config) {
+                    selectedRouteNameEl.textContent = 'No route selected yet';
+                    selectedRouteMetaEl.textContent = 'Search and choose a route to preview direction and path details.';
+                    return;
+                }
+
+                selectedRouteNameEl.textContent = config.main_label || config.label;
+
+                var metaParts = [];
+                if (activeDirection === 'inbound') {
+                    metaParts.push(config.inbound_label || 'Inbound direction');
+                } else if (activeDirection === 'outbound') {
+                    metaParts.push(config.outbound_label || 'Outbound direction');
+                } else {
+                    metaParts.push('Both directions');
+                }
+
+                if (config.via) {
+                    metaParts.push('Via ' + config.via);
+                }
+
+                selectedRouteMetaEl.textContent = metaParts.join(' | ');
+            }
+
+            function setSelectionState(hasSelection) {
+                root.classList.toggle('phmap-no-selection', !hasSelection);
+                root.classList.toggle('phmap-has-selection', hasSelection);
+                root.classList.toggle('phmap-sheet-collapsed', hasSelection);
+                root.classList.toggle('phmap-sheet-expanded', !hasSelection);
+            }
+
+            function setSheetCollapsed(collapsed) {
+                root.classList.toggle('phmap-sheet-collapsed', collapsed);
+                root.classList.toggle('phmap-sheet-expanded', !collapsed);
+            }
+
+            function updateSearchResults() {
+                var fromQuery = fromInputEl ? fromInputEl.value.trim().toLowerCase() : '';
+                var toQuery = toInputEl ? toInputEl.value.trim().toLowerCase() : '';
+                var hasQuery = fromQuery.length > 0 || toQuery.length > 0;
+                var visibleCount = 0;
+                var routeButtons = root.querySelectorAll('.phmap-path-btn');
+
+                routeButtons.forEach(function(btn) {
+                    var fromHaystack = (btn.getAttribute('data-from-search') || btn.getAttribute('data-search') || '').toLowerCase();
+                    var toHaystack = (btn.getAttribute('data-to-search') || btn.getAttribute('data-search') || '').toLowerCase();
+                    var matchesFrom = fromQuery.length === 0 || fromHaystack.indexOf(fromQuery) !== -1;
+                    var matchesTo = toQuery.length === 0 || toHaystack.indexOf(toQuery) !== -1;
+                    var matches = hasQuery && matchesFrom && matchesTo;
+                    btn.classList.toggle('is-hidden', !matches);
+                    if (matches) {
+                        visibleCount++;
+                    } else if (btn.classList.contains('active')) {
+                        clearCurrentPath();
+                    }
+                });
+
+                if (resultCountEl) {
+                    if (!hasQuery) {
+                        resultCountEl.textContent = 'Enter From/To to search';
+                    } else if (visibleCount === 0) {
+                        resultCountEl.textContent = 'No matching routes';
+                    } else {
+                        resultCountEl.textContent = 'Showing ' + visibleCount + ' route' + (visibleCount === 1 ? '' : 's');
+                    }
+                }
+
+                if (resultDetailEl) {
+                    if (!hasQuery) {
+                        resultDetailEl.textContent = 'Enter at least one field to start filtering routes. Matching route cards will appear below.';
+                    } else {
+                        var terms = [];
+                        if (fromQuery.length > 0) {
+                            terms.push('From "' + fromQuery + '"');
+                        }
+                        if (toQuery.length > 0) {
+                            terms.push('To "' + toQuery + '"');
+                        }
+                        resultDetailEl.textContent = 'Filtering by ' + terms.join(' | ');
+                    }
+                }
+
+                if (hasQuery) {
+                    setSheetCollapsed(false);
+                }
+            }
 
             function ensureLeaflet(cb){
                 console.log('Checking for Leaflet...'); // Debug log
@@ -1376,15 +1908,17 @@ class PHMapPlugin {
                     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors'
                 }).addTo(map);
 
-                // Set bounds for entire Philippines
-                var southWest = L.latLng(4.5, 116.0), northEast = L.latLng(21.0, 127.0);
-                var bounds = L.latLngBounds(southWest, northEast);
-                map.setMaxBounds(bounds);
-                map.options.maxBoundsViscosity = 1.0;
-
                 var currentMarkers = [];
                 var currentPaths = []; // Changed to array to hold multiple paths
                 var activeButton = null;
+
+                var cdoBounds = L.latLngBounds(
+                    L.latLng(8.33, 124.50),
+                    L.latLng(8.58, 124.78)
+                );
+                map.setView(cityCenter, <?php echo (int)$zoom; ?>);
+                map.setMaxBounds(cdoBounds.pad(0.35));
+                map.options.maxBoundsViscosity = 0.7;
 
                 function clearCurrentPath(){
                     currentMarkers.forEach(function(m){ map.removeLayer(m); });
@@ -1397,6 +1931,7 @@ class PHMapPlugin {
                     if (activeButton) { 
                         activeButton.classList.remove('active'); 
                         activeButton.style.backgroundColor = ''; 
+                        activeButton.style.borderColor = '';
                         
                         // Reset direction buttons to starter state
                         var allDirectionBtns = activeButton.querySelectorAll('.phmap-direction-btn');
@@ -1407,6 +1942,10 @@ class PHMapPlugin {
                         
                         activeButton = null; 
                     }
+
+                    updateMapStatus('Select a route to view it on the map.');
+                    updateSelectedRouteSummary(null, 'both');
+                    setSelectionState(false);
                 }
 
                 function showPath(config, buttonEl, activeDirection){
@@ -1414,9 +1953,20 @@ class PHMapPlugin {
                     activeButton = buttonEl;
                     buttonEl.classList.add('active');
                     buttonEl.style.backgroundColor = config.color;
+                    buttonEl.style.borderColor = config.color;
 
                     console.log('showPath called with direction:', activeDirection);
                     console.log('Config:', config);
+
+                    var directionSummary = 'Showing both directions.';
+                    if (activeDirection === 'inbound') {
+                        directionSummary = config.inbound_label || 'Showing inbound direction.';
+                    } else if (activeDirection === 'outbound') {
+                        directionSummary = config.outbound_label || 'Showing outbound direction.';
+                    }
+                    updateMapStatus('Now showing: ' + (config.main_label || config.label), directionSummary);
+                    updateSelectedRouteSummary(config, activeDirection);
+                    setSelectionState(true);
 
                     // Render based on active direction
                     if (activeDirection === 'inbound') {
@@ -1493,6 +2043,12 @@ class PHMapPlugin {
 
                 function showAllRoutes() {
                     clearCurrentPath();
+                    updateMapStatus('Now showing all routes.', 'Tap a single route card to focus on one path.');
+                    updateSelectedRouteSummary({
+                        main_label: 'All available routes',
+                        via: ''
+                    }, 'both');
+                    setSelectionState(true);
                     
                     var colorIndex = 0;
                     // More distinct color palette with better contrast
@@ -1587,9 +2143,6 @@ class PHMapPlugin {
 
                 function drawSinglePath(waypoints, route, direction, color, isLoop, pathName, pathOffset) {
                     pathOffset = pathOffset || 0; // Default to no offset
-                    
-                    // Skip adding markers for waypoints - only show paths
-                    // (Markers removed for cleaner visualization)
 
                     // Draw route with solid lines and better path separation
                     var routeCoords = route && Array.isArray(route) && route.length > 0 ? route : 
@@ -1650,6 +2203,31 @@ class PHMapPlugin {
                     
                     var pathPolyline = L.polyline(offsetRoute, routeStyle).addTo(map);
                     currentPaths.push(pathPolyline);
+
+                    if (offsetRoute.length > 0) {
+                        var startpoint = offsetRoute[0];
+                        var startpointMarker = L.circleMarker(startpoint, {
+                            radius: 8,
+                            color: '#ffffff',
+                            weight: 2,
+                            fillColor: '#22c55e',
+                            fillOpacity: 0.95
+                        }).addTo(map);
+                        currentMarkers.push(startpointMarker);
+                    }
+
+                    // Highlight the endpoint of each shown path in pink for better visibility.
+                    if (offsetRoute.length > 0) {
+                        var endpoint = offsetRoute[offsetRoute.length - 1];
+                        var endpointMarker = L.circleMarker(endpoint, {
+                            radius: 8,
+                            color: '#ffffff',
+                            weight: 2,
+                            fillColor: '#ff2f92',
+                            fillOpacity: 0.95
+                        }).addTo(map);
+                        currentMarkers.push(endpointMarker);
+                    }
                 }
 
                 var pathButtons = root.querySelectorAll('.phmap-path-btn');
@@ -1808,6 +2386,31 @@ class PHMapPlugin {
                         clearCurrentPath(); 
                     });
                 }
+
+                if (fromInputEl) {
+                    fromInputEl.addEventListener('input', updateSearchResults);
+                    fromInputEl.addEventListener('focus', function() {
+                        setSheetCollapsed(false);
+                    });
+                }
+
+                if (toInputEl) {
+                    toInputEl.addEventListener('input', updateSearchResults);
+                    toInputEl.addEventListener('focus', function() {
+                        setSheetCollapsed(false);
+                    });
+                }
+
+                updateSearchResults();
+
+                if (sheetHandleEl) {
+                    sheetHandleEl.addEventListener('click', function() {
+                        setSheetCollapsed(!root.classList.contains('phmap-sheet-collapsed'));
+                    });
+                }
+
+                updateSelectedRouteSummary(null, 'both');
+                setSelectionState(false);
             }
         })();</script>
         <?php
