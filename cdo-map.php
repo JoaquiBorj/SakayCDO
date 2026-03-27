@@ -10,10 +10,15 @@ if (!defined('ABSPATH')) { exit; }
 
 class PHMapPlugin {
     private $table_name;
+    private $places_table;
+    private $route_waypoints_table;
+    private $schema_version_option = 'ph_map_normalized_schema_version';
 
     public function __construct() {
         global $wpdb;
         $this->table_name = $wpdb->prefix . 'ph_map_buttons';
+        $this->places_table = $wpdb->prefix . 'ph_map_places';
+        $this->route_waypoints_table = $wpdb->prefix . 'ph_map_route_waypoints';
         
         register_activation_hook(__FILE__, [$this, 'activate']);
         register_deactivation_hook(__FILE__, [$this, 'deactivate']);
@@ -35,6 +40,14 @@ class PHMapPlugin {
         $sql = "CREATE TABLE IF NOT EXISTS $this->table_name (
             id mediumint(9) NOT NULL AUTO_INCREMENT,
             label varchar(255) NOT NULL,
+            from_location varchar(255) NULL,
+            to_location varchar(255) NULL,
+            origin_place_id bigint(20) unsigned NULL,
+            destination_place_id bigint(20) unsigned NULL,
+            variant_code varchar(30) NULL,
+            sub_label varchar(120) NULL,
+            canonical_label varchar(255) NULL,
+            migration_notes text NULL,
             description text NULL,
             waypoints longtext NOT NULL,
             route_data longtext NOT NULL,
@@ -45,11 +58,38 @@ class PHMapPlugin {
             multiple_paths longtext NULL,
             sort_order int(11) NOT NULL DEFAULT 0,
             created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            updated_at datetime NULL,
             PRIMARY KEY (id)
+        ) $charset_collate;";
+
+        $places_sql = "CREATE TABLE IF NOT EXISTS $this->places_table (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            name varchar(255) NOT NULL,
+            place_type varchar(50) NOT NULL DEFAULT 'general',
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            updated_at datetime NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY unique_place_name (name)
+        ) $charset_collate;";
+
+        $route_waypoints_sql = "CREATE TABLE IF NOT EXISTS $this->route_waypoints_table (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            route_id mediumint(9) NOT NULL,
+            path_group varchar(50) NOT NULL DEFAULT 'inbound',
+            direction varchar(20) NOT NULL DEFAULT 'inbound',
+            waypoint_name varchar(255) NULL,
+            lat decimal(10,7) NOT NULL,
+            lng decimal(10,7) NOT NULL,
+            sort_order int(11) NOT NULL DEFAULT 0,
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY route_direction_sort (route_id, direction, sort_order)
         ) $charset_collate;";
         
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
         dbDelta($sql);
+        dbDelta($places_sql);
+        dbDelta($route_waypoints_sql);
         
         // Force schema check
         $this->check_table_schema();
@@ -67,16 +107,48 @@ class PHMapPlugin {
             return;
         }
         
+        // Ensure dependent normalized tables exist
+        $this->ensure_places_table();
+        $this->ensure_route_waypoints_table();
+
         // Check if required columns exist
         $columns = $wpdb->get_results("SHOW COLUMNS FROM {$this->table_name}");
         $column_names = array_column($columns, 'Field');
         
-        $required_columns = ['id', 'label', 'description', 'waypoints', 'route_data', 'is_loop', 'direction', 'color', 'route_type', 'multiple_paths', 'sort_order', 'created_at'];
+        $required_columns = [
+            'id',
+            'label',
+            'from_location',
+            'to_location',
+            'origin_place_id',
+            'destination_place_id',
+            'variant_code',
+            'sub_label',
+            'canonical_label',
+            'migration_notes',
+            'description',
+            'waypoints',
+            'route_data',
+            'is_loop',
+            'direction',
+            'color',
+            'route_type',
+            'multiple_paths',
+            'sort_order',
+            'created_at',
+            'updated_at'
+        ];
         $missing_columns = array_diff($required_columns, $column_names);
         
         if (!empty($missing_columns)) {
             error_log('Missing columns in table ' . $this->table_name . ': ' . implode(', ', $missing_columns));
             $this->update_table_schema($missing_columns);
+        }
+
+        // Backfill normalized columns and waypoint relationships once per schema version.
+        if ((int)get_option($this->schema_version_option, 0) < 1) {
+            $this->migrate_existing_routes_to_normalized_schema();
+            update_option($this->schema_version_option, 1, false);
         }
     }
 
@@ -85,6 +157,30 @@ class PHMapPlugin {
         
         foreach ($missing_columns as $column) {
             switch ($column) {
+                case 'origin_place_id':
+                    $sql = "ALTER TABLE {$this->table_name} ADD COLUMN origin_place_id BIGINT(20) UNSIGNED NULL";
+                    break;
+                case 'destination_place_id':
+                    $sql = "ALTER TABLE {$this->table_name} ADD COLUMN destination_place_id BIGINT(20) UNSIGNED NULL";
+                    break;
+                case 'variant_code':
+                    $sql = "ALTER TABLE {$this->table_name} ADD COLUMN variant_code VARCHAR(30) NULL";
+                    break;
+                case 'sub_label':
+                    $sql = "ALTER TABLE {$this->table_name} ADD COLUMN sub_label VARCHAR(120) NULL";
+                    break;
+                case 'canonical_label':
+                    $sql = "ALTER TABLE {$this->table_name} ADD COLUMN canonical_label VARCHAR(255) NULL";
+                    break;
+                case 'migration_notes':
+                    $sql = "ALTER TABLE {$this->table_name} ADD COLUMN migration_notes TEXT NULL";
+                    break;
+                case 'from_location':
+                    $sql = "ALTER TABLE {$this->table_name} ADD COLUMN from_location VARCHAR(255) NULL";
+                    break;
+                case 'to_location':
+                    $sql = "ALTER TABLE {$this->table_name} ADD COLUMN to_location VARCHAR(255) NULL";
+                    break;
                 case 'description':
                     $sql = "ALTER TABLE {$this->table_name} ADD COLUMN description TEXT NULL";
                     break;
@@ -115,6 +211,9 @@ class PHMapPlugin {
                 case 'created_at':
                     $sql = "ALTER TABLE {$this->table_name} ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP";
                     break;
+                case 'updated_at':
+                    $sql = "ALTER TABLE {$this->table_name} ADD COLUMN updated_at DATETIME NULL";
+                    break;
                 case 'label':
                     $sql = "ALTER TABLE {$this->table_name} ADD COLUMN label VARCHAR(255) NOT NULL";
                     break;
@@ -135,6 +234,353 @@ class PHMapPlugin {
                     $wpdb->query("UPDATE {$this->table_name} SET route_type = 'transportation' WHERE route_type = ''");
                 }
             }
+        }
+    }
+
+    private function ensure_places_table() {
+        global $wpdb;
+
+        $exists = $wpdb->get_var("SHOW TABLES LIKE '{$this->places_table}'");
+        if ($exists) {
+            return;
+        }
+
+        $charset_collate = $wpdb->get_charset_collate();
+        $sql = "CREATE TABLE IF NOT EXISTS $this->places_table (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            name varchar(255) NOT NULL,
+            place_type varchar(50) NOT NULL DEFAULT 'general',
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            updated_at datetime NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY unique_place_name (name)
+        ) $charset_collate;";
+
+        require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+        dbDelta($sql);
+    }
+
+    private function ensure_route_waypoints_table() {
+        global $wpdb;
+
+        $exists = $wpdb->get_var("SHOW TABLES LIKE '{$this->route_waypoints_table}'");
+        if ($exists) {
+            return;
+        }
+
+        $charset_collate = $wpdb->get_charset_collate();
+        $sql = "CREATE TABLE IF NOT EXISTS $this->route_waypoints_table (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            route_id mediumint(9) NOT NULL,
+            path_group varchar(50) NOT NULL DEFAULT 'inbound',
+            direction varchar(20) NOT NULL DEFAULT 'inbound',
+            waypoint_name varchar(255) NULL,
+            lat decimal(10,7) NOT NULL,
+            lng decimal(10,7) NOT NULL,
+            sort_order int(11) NOT NULL DEFAULT 0,
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY route_direction_sort (route_id, direction, sort_order)
+        ) $charset_collate;";
+
+        require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+        dbDelta($sql);
+    }
+
+    private function normalize_place_name($name) {
+        $name = trim((string)$name);
+        if ($name === '') {
+            return '';
+        }
+
+        $name = preg_replace('/\s+/', ' ', $name);
+        return $name;
+    }
+
+    private function normalize_variant_code($variant_code) {
+        $variant_code = strtoupper(trim((string)$variant_code));
+        return preg_replace('/\s+/', '', $variant_code);
+    }
+
+    private function build_generated_route_label($origin_name, $destination_name, $variant_code = '', $sub_label = '') {
+        $origin_name = $this->normalize_place_name($origin_name);
+        $destination_name = $this->normalize_place_name($destination_name);
+        $variant_code = $this->normalize_variant_code($variant_code);
+        $sub_label = trim((string)$sub_label);
+
+        if ($origin_name === '' || $destination_name === '') {
+            return '';
+        }
+
+        if ($variant_code !== '' && $sub_label !== '') {
+            return sprintf('%s %s %s - %s', $origin_name, $variant_code, $sub_label, $destination_name);
+        }
+
+        if ($variant_code !== '') {
+            return sprintf('%s %s - %s', $origin_name, $variant_code, $destination_name);
+        }
+
+        return sprintf('%s - %s', $origin_name, $destination_name);
+    }
+
+    private function parse_legacy_route_label($legacy_label) {
+        $legacy_label = trim((string)$legacy_label);
+        $result = [
+            'origin_name' => '',
+            'destination_name' => '',
+            'variant_code' => '',
+            'sub_label' => '',
+            'manual_review' => false,
+            'reason' => ''
+        ];
+
+        if ($legacy_label === '') {
+            $result['manual_review'] = true;
+            $result['reason'] = 'Empty label';
+            return $result;
+        }
+
+        if (!preg_match('/^(.*?)\s*(?:-|–|—)\s*(.+)$/u', $legacy_label, $parts)) {
+            $result['manual_review'] = true;
+            $result['reason'] = 'Label missing expected separator';
+            return $result;
+        }
+
+        $left = trim($parts[1]);
+        $result['destination_name'] = $this->normalize_place_name($parts[2]);
+
+        if (preg_match('/^(.*?)\s+([Rr]\d+[A-Za-z0-9-]*)\s*(.*)$/u', $left, $left_parts)) {
+            $result['origin_name'] = $this->normalize_place_name($left_parts[1]);
+            $result['variant_code'] = $this->normalize_variant_code($left_parts[2]);
+            $result['sub_label'] = $this->normalize_place_name($left_parts[3]);
+        } else {
+            $result['origin_name'] = $this->normalize_place_name($left);
+        }
+
+        if ($result['origin_name'] === '' || $result['destination_name'] === '') {
+            $result['manual_review'] = true;
+            $result['reason'] = 'Could not parse origin/destination with confidence';
+        }
+
+        return $result;
+    }
+
+    private function upsert_place($name, $place_type = 'general') {
+        global $wpdb;
+
+        $name = $this->normalize_place_name($name);
+        if ($name === '') {
+            return 0;
+        }
+
+        $existing_id = (int)$wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM {$this->places_table} WHERE name = %s LIMIT 1",
+            $name
+        ));
+
+        if ($existing_id > 0) {
+            return $existing_id;
+        }
+
+        $wpdb->insert(
+            $this->places_table,
+            [
+                'name' => $name,
+                'place_type' => sanitize_key($place_type) ?: 'general',
+                'updated_at' => current_time('mysql')
+            ],
+            ['%s', '%s', '%s']
+        );
+
+        if ($wpdb->insert_id) {
+            return (int)$wpdb->insert_id;
+        }
+
+        // In case of race condition with unique constraint.
+        return (int)$wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM {$this->places_table} WHERE name = %s LIMIT 1",
+            $name
+        ));
+    }
+
+    private function get_place_name_by_id($place_id) {
+        global $wpdb;
+
+        $place_id = (int)$place_id;
+        if ($place_id <= 0) {
+            return '';
+        }
+
+        return (string)$wpdb->get_var($wpdb->prepare(
+            "SELECT name FROM {$this->places_table} WHERE id = %d LIMIT 1",
+            $place_id
+        ));
+    }
+
+    private function get_route_display_label($button) {
+        $origin = '';
+        $destination = '';
+
+        if (isset($button->origin_name)) {
+            $origin = $button->origin_name;
+        } elseif (isset($button->from_location)) {
+            $origin = $button->from_location;
+        }
+
+        if (isset($button->destination_name)) {
+            $destination = $button->destination_name;
+        } elseif (isset($button->to_location)) {
+            $destination = $button->to_location;
+        }
+
+        $variant_code = isset($button->variant_code) ? $button->variant_code : '';
+        $sub_label = isset($button->sub_label) ? $button->sub_label : '';
+        $canonical = isset($button->canonical_label) ? trim((string)$button->canonical_label) : '';
+
+        if ($canonical !== '') {
+            return $canonical;
+        }
+
+        $generated = $this->build_generated_route_label($origin, $destination, $variant_code, $sub_label);
+        if ($generated !== '') {
+            return $generated;
+        }
+
+        return isset($button->label) ? (string)$button->label : '';
+    }
+
+    private function get_all_places() {
+        global $wpdb;
+
+        return $wpdb->get_results("SELECT id, name, place_type FROM {$this->places_table} ORDER BY name ASC");
+    }
+
+    private function sync_route_waypoints_table($route_id, $inbound_waypoints, $multiple_paths) {
+        global $wpdb;
+
+        $route_id = (int)$route_id;
+        if ($route_id <= 0) {
+            return;
+        }
+
+        $wpdb->delete($this->route_waypoints_table, ['route_id' => $route_id], ['%d']);
+
+        $insert_waypoints = function($waypoints, $direction, $path_group) use ($wpdb, $route_id) {
+            if (!is_array($waypoints)) {
+                return;
+            }
+
+            foreach ($waypoints as $index => $point) {
+                if (!is_array($point) || !isset($point['lat']) || !isset($point['lng'])) {
+                    continue;
+                }
+
+                $lat = (float)$point['lat'];
+                $lng = (float)$point['lng'];
+
+                $wpdb->insert(
+                    $this->route_waypoints_table,
+                    [
+                        'route_id' => $route_id,
+                        'path_group' => $path_group,
+                        'direction' => $direction,
+                        'waypoint_name' => sprintf('%s waypoint %d', ucfirst($direction), $index + 1),
+                        'lat' => $lat,
+                        'lng' => $lng,
+                        'sort_order' => $index + 1,
+                    ],
+                    ['%d', '%s', '%s', '%s', '%f', '%f', '%d']
+                );
+            }
+        };
+
+        $insert_waypoints($inbound_waypoints, 'inbound', 'inbound');
+
+        if (is_array($multiple_paths)) {
+            foreach ($multiple_paths as $index => $path) {
+                if (!is_array($path) || !isset($path['waypoints']) || !is_array($path['waypoints'])) {
+                    continue;
+                }
+
+                $path_group = isset($path['id']) && $path['id'] !== '' ? sanitize_key($path['id']) : 'outbound_' . ($index + 1);
+                $insert_waypoints($path['waypoints'], 'outbound', $path_group);
+            }
+        }
+    }
+
+    private function migrate_existing_routes_to_normalized_schema() {
+        global $wpdb;
+
+        $routes = $wpdb->get_results("SELECT * FROM {$this->table_name}");
+        if (empty($routes)) {
+            return;
+        }
+
+        foreach ($routes as $route) {
+            $parsed = $this->parse_legacy_route_label($route->label);
+
+            $origin_name = $this->normalize_place_name($route->from_location ?: $parsed['origin_name']);
+            $destination_name = $this->normalize_place_name($route->to_location ?: $parsed['destination_name']);
+
+            $variant_code = $this->normalize_variant_code($route->variant_code ?: $parsed['variant_code']);
+            $sub_label = $this->normalize_place_name($route->sub_label ?: $parsed['sub_label']);
+
+            $origin_place_id = (int)$route->origin_place_id;
+            if ($origin_place_id <= 0) {
+                $origin_place_id = $this->upsert_place($origin_name, 'origin');
+            }
+
+            $destination_place_id = (int)$route->destination_place_id;
+            if ($destination_place_id <= 0) {
+                $destination_place_id = $this->upsert_place($destination_name, 'destination');
+            }
+
+            if ($origin_name === '' && $origin_place_id > 0) {
+                $origin_name = $this->get_place_name_by_id($origin_place_id);
+            }
+
+            if ($destination_name === '' && $destination_place_id > 0) {
+                $destination_name = $this->get_place_name_by_id($destination_place_id);
+            }
+
+            $canonical_label = $this->build_generated_route_label($origin_name, $destination_name, $variant_code, $sub_label);
+            if ($canonical_label === '') {
+                $canonical_label = (string)$route->label;
+            }
+
+            $migration_note = '';
+            if (!empty($parsed['manual_review'])) {
+                $migration_note = 'manual_review: ' . $parsed['reason'] . ' (source: ' . $route->label . ')';
+            }
+
+            $wpdb->update(
+                $this->table_name,
+                [
+                    'from_location' => $origin_name,
+                    'to_location' => $destination_name,
+                    'origin_place_id' => $origin_place_id ?: null,
+                    'destination_place_id' => $destination_place_id ?: null,
+                    'variant_code' => $variant_code,
+                    'sub_label' => $sub_label,
+                    'canonical_label' => $canonical_label,
+                    'migration_notes' => $migration_note,
+                    'label' => $canonical_label,
+                    'updated_at' => current_time('mysql')
+                ],
+                ['id' => (int)$route->id]
+            );
+
+            $inbound_waypoints = json_decode((string)$route->waypoints, true);
+            if (!is_array($inbound_waypoints)) {
+                $inbound_waypoints = [];
+            }
+
+            $multiple_paths = json_decode((string)$route->multiple_paths, true);
+            if (!is_array($multiple_paths)) {
+                $multiple_paths = [];
+            }
+
+            $this->sync_route_waypoints_table((int)$route->id, $inbound_waypoints, $multiple_paths);
         }
     }
 
@@ -161,7 +607,14 @@ class PHMapPlugin {
         $button_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
         
         if ($action === 'edit' && $button_id) {
-            $button = $wpdb->get_row($wpdb->prepare("SELECT * FROM $this->table_name WHERE id = %d", $button_id));
+            $button = $wpdb->get_row($wpdb->prepare(
+                "SELECT b.*, po.name AS origin_name, pd.name AS destination_name
+                 FROM {$this->table_name} b
+                 LEFT JOIN {$this->places_table} po ON po.id = b.origin_place_id
+                 LEFT JOIN {$this->places_table} pd ON pd.id = b.destination_place_id
+                 WHERE b.id = %d",
+                $button_id
+            ));
             $this->render_edit_form($button);
         } elseif ($action === 'add') {
             $this->render_edit_form();
@@ -172,14 +625,107 @@ class PHMapPlugin {
 
     private function render_list_page() {
         global $wpdb;
-        $buttons = $wpdb->get_results("SELECT * FROM $this->table_name ORDER BY sort_order ASC, id ASC");
+
+        $search_query = isset($_GET['s']) ? sanitize_text_field(wp_unslash($_GET['s'])) : '';
+        $origin_filter = isset($_GET['origin']) ? sanitize_text_field(wp_unslash($_GET['origin'])) : '';
+        $destination_filter = isset($_GET['destination']) ? sanitize_text_field(wp_unslash($_GET['destination'])) : '';
+        $variant_filter = isset($_GET['variant']) ? sanitize_text_field(wp_unslash($_GET['variant'])) : '';
+        $needs_review_filter = isset($_GET['needs_review']) && $_GET['needs_review'] === '1';
+
+        $where_clauses = ['1=1'];
+        $params = [];
+
+        if ($search_query !== '') {
+            $search_like = '%' . $wpdb->esc_like($search_query) . '%';
+            $where_clauses[] = "(
+                b.canonical_label LIKE %s OR
+                b.label LIKE %s OR
+                b.from_location LIKE %s OR
+                b.to_location LIKE %s OR
+                b.variant_code LIKE %s OR
+                b.sub_label LIKE %s OR
+                b.description LIKE %s
+            )";
+            $params = array_merge($params, array_fill(0, 7, $search_like));
+        }
+
+        if ($origin_filter !== '') {
+            $origin_like = '%' . $wpdb->esc_like($origin_filter) . '%';
+            $where_clauses[] = 'COALESCE(po.name, b.from_location) LIKE %s';
+            $params[] = $origin_like;
+        }
+
+        if ($destination_filter !== '') {
+            $destination_like = '%' . $wpdb->esc_like($destination_filter) . '%';
+            $where_clauses[] = 'COALESCE(pd.name, b.to_location) LIKE %s';
+            $params[] = $destination_like;
+        }
+
+        if ($variant_filter !== '') {
+            $variant_like = '%' . $wpdb->esc_like($variant_filter) . '%';
+            $where_clauses[] = 'b.variant_code LIKE %s';
+            $params[] = $variant_like;
+        }
+
+        if ($needs_review_filter) {
+            $where_clauses[] = "(b.migration_notes IS NOT NULL AND b.migration_notes <> '')";
+        }
+
+        $has_filters = ($search_query !== '' || $origin_filter !== '' || $destination_filter !== '' || $variant_filter !== '' || $needs_review_filter);
+
+        $sql = "SELECT b.*, po.name AS origin_name, pd.name AS destination_name
+                FROM {$this->table_name} b
+                LEFT JOIN {$this->places_table} po ON po.id = b.origin_place_id
+                LEFT JOIN {$this->places_table} pd ON pd.id = b.destination_place_id
+                WHERE " . implode(' AND ', $where_clauses) . "
+                ORDER BY b.sort_order ASC, b.id ASC";
+
+        if (!empty($params)) {
+            $buttons = $wpdb->get_results($wpdb->prepare($sql, $params));
+        } else {
+            $buttons = $wpdb->get_results($sql);
+        }
         ?>
         <div class="wrap">
             <h1>PH Map Path Buttons <a href="<?php echo admin_url('admin.php?page=ph-map-buttons&action=add'); ?>" class="page-title-action">Add New</a></h1>
+
+            <form method="get" style="margin: 12px 0 16px; padding: 12px; background: #fff; border: 1px solid #dcdcde; border-radius: 6px;">
+                <input type="hidden" name="page" value="ph-map-buttons">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; align-items: end;">
+                    <label>
+                        <strong>Search</strong><br>
+                        <input type="search" name="s" value="<?php echo esc_attr($search_query); ?>" class="regular-text" placeholder="Label, place, variant, notes" style="width: 100%;">
+                    </label>
+                    <label>
+                        <strong>Origin</strong><br>
+                        <input type="text" name="origin" value="<?php echo esc_attr($origin_filter); ?>" class="regular-text" placeholder="e.g. Balulang" style="width: 100%;">
+                    </label>
+                    <label>
+                        <strong>Destination</strong><br>
+                        <input type="text" name="destination" value="<?php echo esc_attr($destination_filter); ?>" class="regular-text" placeholder="e.g. Carmen Public Market" style="width: 100%;">
+                    </label>
+                    <label>
+                        <strong>Variant</strong><br>
+                        <input type="text" name="variant" value="<?php echo esc_attr($variant_filter); ?>" class="regular-text" placeholder="R1, R2..." style="width: 100%;">
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">
+                        <input type="checkbox" name="needs_review" value="1" <?php checked($needs_review_filter); ?>>
+                        <strong>Needs Review Only</strong>
+                    </label>
+                </div>
+                <p style="margin: 12px 0 0; display: flex; gap: 8px;">
+                    <button type="submit" class="button button-primary">Apply Filters</button>
+                    <a href="<?php echo esc_url(admin_url('admin.php?page=ph-map-buttons')); ?>" class="button">Reset</a>
+                </p>
+            </form>
             
             <div class="notice notice-info">
                 <p><strong>Usage:</strong> Use shortcode <code>[ph_map]</code> to display the map with all configured buttons.</p>
-                <p><strong>Tip:</strong> Drag and drop the rows below to reorder how buttons appear on the frontend.</p>
+                <?php if ($has_filters): ?>
+                    <p><strong>Tip:</strong> Reordering is disabled while filters are active. Reset filters to reorder all routes safely.</p>
+                <?php else: ?>
+                    <p><strong>Tip:</strong> Drag and drop the rows below to reorder how buttons appear on the frontend.</p>
+                <?php endif; ?>
             </div>
             
             <style>
@@ -209,6 +755,12 @@ class PHMapPlugin {
                 .drag-handle:hover {
                     color: #0073aa;
                 }
+                <?php if ($has_filters): ?>
+                .drag-handle {
+                    opacity: 0.4;
+                    cursor: not-allowed;
+                }
+                <?php endif; ?>
             </style>
             
             <table class="wp-list-table widefat fixed striped sortable-table" id="buttons-table">
@@ -216,11 +768,10 @@ class PHMapPlugin {
                     <tr>
                         <th width="30px">Order</th>
                         <th>ID</th>
-                        <th>Button Label</th>
-                        <th>Description</th>
+                        <th>Route Label</th>
+                        <th>Origin</th>
+                        <th>Destination</th>
                         <th>Waypoints</th>
-                        <th>Type</th>
-                        <th>Direction</th>
                         <th>Created</th>
                         <th>Actions</th>
                     </tr>
@@ -228,22 +779,17 @@ class PHMapPlugin {
                 <tbody id="sortable-buttons">
                     <?php if (empty($buttons)): ?>
                         <tr>
-                            <td colspan="9">No buttons configured yet. <a href="<?php echo admin_url('admin.php?page=ph-map-buttons&action=add'); ?>">Add your first button</a>.</td>
+                            <td colspan="8">No buttons configured yet. <a href="<?php echo admin_url('admin.php?page=ph-map-buttons&action=add'); ?>">Add your first button</a>.</td>
                         </tr>
                     <?php else: ?>
                         <?php foreach ($buttons as $button): ?>
                             <?php 
                             $waypoints_data = json_decode($button->waypoints, true);
                             $waypoint_count = is_array($waypoints_data) ? count($waypoints_data) : 0;
-                            $is_loop = isset($button->is_loop) ? (bool)$button->is_loop : false;
-                            $direction = isset($button->direction) ? $button->direction : 'inbound';
                             $color = isset($button->color) ? $button->color : '#ff2f6d';
-                            $description = isset($button->description) ? $button->description : '';
-                            
-                            $direction_icons = [
-                                'inbound' => '🔴 Inbound',
-                                'outbound' => '🔵 Outbound'
-                            ];
+                            $display_label = $this->get_route_display_label($button);
+                            $origin_name = !empty($button->origin_name) ? $button->origin_name : $button->from_location;
+                            $destination_name = !empty($button->destination_name) ? $button->destination_name : $button->to_location;
                             ?>
                             <tr data-button-id="<?php echo $button->id; ?>">
                                 <td>
@@ -251,21 +797,17 @@ class PHMapPlugin {
                                 </td>
                                 <td><?php echo $button->id; ?></td>
                                 <td>
-                                    <strong><?php echo esc_html($button->label); ?></strong>
+                                    <strong><?php echo esc_html($display_label); ?></strong>
                                     <div style="width: 20px; height: 3px; background: <?php echo esc_attr($color); ?>; margin-top: 2px;"></div>
-                                </td>
-                                <td>
-                                    <?php if ($description): ?>
-                                        <span title="<?php echo esc_attr($description); ?>">
-                                            <?php echo esc_html(wp_trim_words($description, 8, '...')); ?>
-                                        </span>
-                                    <?php else: ?>
-                                        <em style="color: #666;">No description</em>
+                                    <?php if (!empty($button->migration_notes)): ?>
+                                        <div style="color: #b45309; margin-top: 4px; font-size: 12px;">
+                                            Needs review: <?php echo esc_html($button->migration_notes); ?>
+                                        </div>
                                     <?php endif; ?>
                                 </td>
+                                <td><?php echo esc_html($origin_name ?: 'N/A'); ?></td>
+                                <td><?php echo esc_html($destination_name ?: 'N/A'); ?></td>
                                 <td><?php echo $waypoint_count; ?> waypoints</td>
-                                <td><?php echo $is_loop ? '🔄 Loop' : '📍 One-way'; ?></td>
-                                <td><?php echo $direction_icons[$direction] ?? $direction; ?></td>
                                 <td><?php echo isset($button->created_at) ? date('M j, Y', strtotime($button->created_at)) : 'Unknown'; ?></td>
                                 <td>
                                     <a href="<?php echo admin_url('admin.php?page=ph-map-buttons&action=edit&id=' . $button->id); ?>">Edit</a> |
@@ -283,6 +825,11 @@ class PHMapPlugin {
             
             <script>
             jQuery(document).ready(function($) {
+                var filtersActive = <?php echo $has_filters ? 'true' : 'false'; ?>;
+                if (filtersActive) {
+                    return;
+                }
+
                 if ($('#sortable-buttons tr').length > 1) {
                     $('#sortable-buttons').sortable({
                         handle: '.drag-handle',
@@ -333,15 +880,30 @@ class PHMapPlugin {
 
     private function render_edit_form($button = null) {
         $is_edit = $button !== null;
-        $title = $is_edit ? 'Edit Button' : 'Add New Button';
+        $title = $is_edit ? 'Edit Route' : 'Add New Route';
         $waypoints = $is_edit ? $button->waypoints : '[]';
         $route_data = $is_edit ? $button->route_data : '[]';
         $is_loop = $is_edit && isset($button->is_loop) ? (bool)$button->is_loop : false;
         $direction = $is_edit && isset($button->direction) ? $button->direction : 'inbound';
         $color = $is_edit && isset($button->color) ? $button->color : '#ff2f6d';
+        $from_location = $is_edit && isset($button->from_location) ? $button->from_location : '';
+        $to_location = $is_edit && isset($button->to_location) ? $button->to_location : '';
         $description = $is_edit && isset($button->description) ? $button->description : '';
         $route_type = $is_edit && isset($button->route_type) ? $button->route_type : 'transportation';
         $multiple_paths = $is_edit && isset($button->multiple_paths) ? $button->multiple_paths : '[]';
+        $origin_place_id = $is_edit && isset($button->origin_place_id) ? (int)$button->origin_place_id : 0;
+        $destination_place_id = $is_edit && isset($button->destination_place_id) ? (int)$button->destination_place_id : 0;
+        $variant_code = $is_edit && isset($button->variant_code) ? $button->variant_code : '';
+        $sub_label = $is_edit && isset($button->sub_label) ? $button->sub_label : '';
+
+        $origin_place_name = $is_edit && !empty($button->origin_name) ? $button->origin_name : $from_location;
+        $destination_place_name = $is_edit && !empty($button->destination_name) ? $button->destination_name : $to_location;
+        $generated_label = $this->build_generated_route_label($origin_place_name, $destination_place_name, $variant_code, $sub_label);
+        if ($generated_label === '' && $is_edit && isset($button->label)) {
+            $generated_label = $button->label;
+        }
+
+        $places = $this->get_all_places();
         ?>
         <div class="wrap">
             <h1><?php echo $title; ?></h1>
@@ -355,41 +917,66 @@ class PHMapPlugin {
                 <input type="hidden" name="waypoints" id="waypoints_data" value="<?php echo esc_attr($waypoints); ?>">
                 <input type="hidden" name="route_data" id="route_data" value="<?php echo esc_attr($route_data); ?>">
                 <input type="hidden" name="multiple_paths" id="multiple_paths_data" value="<?php echo esc_attr($multiple_paths); ?>">
+                <input type="hidden" name="label" id="generated_label_input" value="<?php echo esc_attr($generated_label); ?>">
+                <input type="hidden" name="route_type" value="transportation">
+                <input type="checkbox" id="is_loop" value="1" style="display:none;" aria-hidden="true" tabindex="-1">
                 
                 <table class="form-table">
                     <tr>
-                        <th scope="row">Button Label</th>
+                        <th scope="row">Origin Place</th>
                         <td>
-                            <input type="text" name="label" value="<?php echo $is_edit ? esc_attr($button->label) : ''; ?>" class="regular-text" required>
-                            <p class="description">The text that will appear on the button.</p>
+                            <select name="origin_place_id" id="origin_place_id" class="regular-text">
+                                <option value="">Select existing origin place</option>
+                                <?php foreach ($places as $place): ?>
+                                    <option value="<?php echo (int)$place->id; ?>" <?php selected($origin_place_id, (int)$place->id); ?>>
+                                        <?php echo esc_html($place->name); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                            <p style="margin: 6px 0;">or</p>
+                            <input type="text" name="origin_place_name" id="origin_place_name" value="<?php echo esc_attr($origin_place_name); ?>" class="regular-text" placeholder="Type a new origin place">
+                            <p class="description">Use an existing place for canonical naming or add a new one.</p>
                         </td>
                     </tr>
-                    
+
                     <tr>
-                        <th scope="row">Button Description</th>
+                        <th scope="row">Destination Place</th>
                         <td>
-                            <textarea name="description" rows="3" class="large-text" placeholder="e.g., Express route to downtown area via main highways"><?php echo $is_edit ? esc_textarea($description) : ''; ?></textarea>
-                            <p class="description">Optional description that will appear as a tooltip when users hover over the button.</p>
+                            <select name="destination_place_id" id="destination_place_id" class="regular-text">
+                                <option value="">Select existing destination place</option>
+                                <?php foreach ($places as $place): ?>
+                                    <option value="<?php echo (int)$place->id; ?>" <?php selected($destination_place_id, (int)$place->id); ?>>
+                                        <?php echo esc_html($place->name); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                            <p style="margin: 6px 0;">or</p>
+                            <input type="text" name="destination_place_name" id="destination_place_name" value="<?php echo esc_attr($destination_place_name); ?>" class="regular-text" placeholder="Type a new destination place">
+                            <p class="description">Use an existing place for canonical naming or add a new one.</p>
                         </td>
                     </tr>
-                    
+
                     <tr>
-                        <th scope="row">Route Settings</th>
+                        <th scope="row">Route Variant Code</th>
                         <td>
-                            <div style="margin-bottom: 15px;">
-                                <label style="margin-right: 20px; display: inline-block;">
-                                    Route Type: 
-                                    <select name="route_type" id="route_type" style="margin-left: 5px;">
-                                        <option value="transportation" <?php selected($route_type, 'transportation'); ?>>🚌 Transportation (Jeepney/Bus)</option>
-                                        <option value="personal" <?php selected($route_type, 'personal'); ?>>👤 Personal Route</option>
-                                    </select>
-                                </label>
-                                <label>
-                                    <input type="checkbox" name="is_loop" id="is_loop" value="1" <?php checked($is_loop); ?>>
-                                    Loop (return to start)
-                                </label>
-                            </div>
-                            <p class="description">Transportation routes are for jeepneys, buses, etc. Personal routes are for walking, driving, etc.</p>
+                            <input type="text" name="variant_code" id="variant_code" value="<?php echo esc_attr($variant_code); ?>" class="regular-text" placeholder="R1, R2, R4..." maxlength="30">
+                            <p class="description">Optional route variant code.</p>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <th scope="row">Sub-label / Branch</th>
+                        <td>
+                            <input type="text" name="sub_label" id="sub_label" value="<?php echo esc_attr($sub_label); ?>" class="regular-text" placeholder="Centro, Villa Verde, Xavier Heights..." maxlength="120">
+                            <p class="description">Optional branch, descriptor, or sub-route name.</p>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <th scope="row">Generated Route Label</th>
+                        <td>
+                            <strong id="generated_label_preview"><?php echo esc_html($generated_label ?: 'Fill origin and destination to generate route label'); ?></strong>
+                            <p class="description">Label is generated automatically from structured route fields.</p>
                         </td>
                     </tr>
                     
@@ -487,6 +1074,74 @@ class PHMapPlugin {
                 var isLoopCheckbox = document.getElementById('is_loop');
                 var currentPathNameEl = document.getElementById('current-path-name');
                 var currentPathDescEl = document.getElementById('current-path-description');
+                var originSelectEl = document.getElementById('origin_place_id');
+                var destinationSelectEl = document.getElementById('destination_place_id');
+                var originNameEl = document.getElementById('origin_place_name');
+                var destinationNameEl = document.getElementById('destination_place_name');
+                var variantCodeEl = document.getElementById('variant_code');
+                var subLabelEl = document.getElementById('sub_label');
+                var generatedLabelPreviewEl = document.getElementById('generated_label_preview');
+                var generatedLabelInputEl = document.getElementById('generated_label_input');
+
+                function getSelectedText(selectEl) {
+                    if (!selectEl) {
+                        return '';
+                    }
+                    var index = selectEl.selectedIndex;
+                    if (index <= 0) {
+                        return '';
+                    }
+                    return (selectEl.options[index].text || '').trim();
+                }
+
+                function normalizeSpaces(value) {
+                    return (value || '').replace(/\s+/g, ' ').trim();
+                }
+
+                function composeLabel(origin, destination, variantCode, subLabel) {
+                    origin = normalizeSpaces(origin);
+                    destination = normalizeSpaces(destination);
+                    variantCode = normalizeSpaces((variantCode || '').toUpperCase()).replace(/\s+/g, '');
+                    subLabel = normalizeSpaces(subLabel);
+
+                    if (!origin || !destination) {
+                        return '';
+                    }
+
+                    if (variantCode && subLabel) {
+                        return origin + ' ' + variantCode + ' ' + subLabel + ' - ' + destination;
+                    }
+
+                    if (variantCode) {
+                        return origin + ' ' + variantCode + ' - ' + destination;
+                    }
+
+                    return origin + ' - ' + destination;
+                }
+
+                function refreshGeneratedLabel() {
+                    var origin = normalizeSpaces(originNameEl && originNameEl.value ? originNameEl.value : getSelectedText(originSelectEl));
+                    var destination = normalizeSpaces(destinationNameEl && destinationNameEl.value ? destinationNameEl.value : getSelectedText(destinationSelectEl));
+                    var variantCode = variantCodeEl ? variantCodeEl.value : '';
+                    var subLabel = subLabelEl ? subLabelEl.value : '';
+                    var generated = composeLabel(origin, destination, variantCode, subLabel);
+
+                    if (generatedLabelPreviewEl) {
+                        generatedLabelPreviewEl.textContent = generated || 'Fill origin and destination to generate route label';
+                    }
+
+                    if (generatedLabelInputEl) {
+                        generatedLabelInputEl.value = generated;
+                    }
+                }
+
+                [originSelectEl, destinationSelectEl, originNameEl, destinationNameEl, variantCodeEl, subLabelEl].forEach(function(el) {
+                    if (el) {
+                        el.addEventListener('input', refreshGeneratedLabel);
+                        el.addEventListener('change', refreshGeneratedLabel);
+                    }
+                });
+                refreshGeneratedLabel();
 
                 // Initialize map
                 var cityCenter = [12.8797, 121.7740]; // Center of Philippines
@@ -822,6 +1477,14 @@ class PHMapPlugin {
                 // Form validation
                 document.getElementById('path-form').addEventListener('submit', function(e) {
                     console.log('Form submitting...');
+
+                    refreshGeneratedLabel();
+
+                    if (!generatedLabelInputEl || !generatedLabelInputEl.value) {
+                        e.preventDefault();
+                        alert('Please choose or enter both origin and destination places.');
+                        return false;
+                    }
                     
                     var totalWaypoints = (pathsData.inbound.waypoints || []).length + (pathsData.outbound.waypoints || []).length;
                     
@@ -892,7 +1555,35 @@ class PHMapPlugin {
         $this->check_table_schema();
         
         $button_id = isset($_POST['button_id']) ? intval($_POST['button_id']) : 0;
-        $label = sanitize_text_field($_POST['label']);
+        $origin_place_id = isset($_POST['origin_place_id']) ? (int)$_POST['origin_place_id'] : 0;
+        $destination_place_id = isset($_POST['destination_place_id']) ? (int)$_POST['destination_place_id'] : 0;
+        $origin_place_name_input = isset($_POST['origin_place_name']) ? sanitize_text_field($_POST['origin_place_name']) : '';
+        $destination_place_name_input = isset($_POST['destination_place_name']) ? sanitize_text_field($_POST['destination_place_name']) : '';
+        $variant_code = isset($_POST['variant_code']) ? $this->normalize_variant_code(sanitize_text_field($_POST['variant_code'])) : '';
+        $sub_label = isset($_POST['sub_label']) ? sanitize_text_field($_POST['sub_label']) : '';
+
+        $selected_origin_name = $origin_place_id > 0 ? $this->get_place_name_by_id($origin_place_id) : '';
+        $selected_destination_name = $destination_place_id > 0 ? $this->get_place_name_by_id($destination_place_id) : '';
+
+        $from_location = $this->normalize_place_name($origin_place_name_input !== '' ? $origin_place_name_input : $selected_origin_name);
+        $to_location = $this->normalize_place_name($destination_place_name_input !== '' ? $destination_place_name_input : $selected_destination_name);
+
+        if ($origin_place_id <= 0 && $from_location !== '') {
+            $origin_place_id = $this->upsert_place($from_location, 'origin');
+        }
+        if ($destination_place_id <= 0 && $to_location !== '') {
+            $destination_place_id = $this->upsert_place($to_location, 'destination');
+        }
+
+        if ($origin_place_id > 0 && $from_location === '') {
+            $from_location = $this->get_place_name_by_id($origin_place_id);
+        }
+        if ($destination_place_id > 0 && $to_location === '') {
+            $to_location = $this->get_place_name_by_id($destination_place_id);
+        }
+
+        $canonical_label = $this->build_generated_route_label($from_location, $to_location, $variant_code, $sub_label);
+        $label = $canonical_label !== '' ? $canonical_label : sanitize_text_field($_POST['label']);
         $description = isset($_POST['description']) ? sanitize_textarea_field($_POST['description']) : '';
         $waypoints_raw = isset($_POST['waypoints']) ? $_POST['waypoints'] : '';
         $route_data_raw = isset($_POST['route_data']) ? $_POST['route_data'] : '';
@@ -921,7 +1612,7 @@ class PHMapPlugin {
         
         // Validate label
         if (empty($label)) {
-            wp_die('Button label cannot be empty.');
+            wp_die('Route label cannot be generated. Please provide valid origin and destination places.');
         }
         
         // Validate waypoints JSON
@@ -992,6 +1683,14 @@ class PHMapPlugin {
         
         $data = [
             'label' => $label,
+            'from_location' => $from_location,
+            'to_location' => $to_location,
+            'origin_place_id' => $origin_place_id ?: null,
+            'destination_place_id' => $destination_place_id ?: null,
+            'variant_code' => $variant_code,
+            'sub_label' => $sub_label,
+            'canonical_label' => $label,
+            'migration_notes' => '',
             'description' => $description,
             'waypoints' => $waypoints,
             'route_data' => $route_data,
@@ -999,7 +1698,8 @@ class PHMapPlugin {
             'is_loop' => $is_loop,
             'direction' => $direction,
             'color' => $color,
-            'route_type' => $route_type
+            'route_type' => $route_type,
+            'updated_at' => current_time('mysql')
         ];
         
         // Set sort_order for new buttons
@@ -1008,7 +1708,10 @@ class PHMapPlugin {
             $data['sort_order'] = ($max_sort_order ? $max_sort_order + 1 : 1);
         }
         
-        error_log('Preparing to save data: ' . var_export(array_map('strlen', $data), true));
+        $data_sizes = array_map(function($value) {
+            return strlen((string)$value);
+        }, $data);
+        error_log('Preparing to save data sizes: ' . var_export($data_sizes, true));
         
         if ($button_id) {
             // Check if button exists
@@ -1018,7 +1721,7 @@ class PHMapPlugin {
             }
             
             $result = $wpdb->update($this->table_name, $data, ['id' => $button_id]);
-            $message = 'Button updated successfully!';
+            $message = 'Route updated successfully!';
             
             if ($result === false) {
                 error_log('Update failed. MySQL Error: ' . $wpdb->last_error);
@@ -1027,14 +1730,22 @@ class PHMapPlugin {
             }
         } else {
             $result = $wpdb->insert($this->table_name, $data);
-            $message = 'Button added successfully!';
+            $message = 'Route added successfully!';
             
             if ($result === false) {
                 error_log('Insert failed. MySQL Error: ' . $wpdb->last_error);
                 error_log('Insert query: ' . $wpdb->last_query);
                 wp_die('Database insert error: ' . $wpdb->last_error . '. Please try again.');
             }
+
+            $button_id = (int)$wpdb->insert_id;
         }
+
+        $decoded_multiple_paths = json_decode($multiple_paths, true);
+        if (!is_array($decoded_multiple_paths)) {
+            $decoded_multiple_paths = [];
+        }
+        $this->sync_route_waypoints_table($button_id, $waypoint_array, $decoded_multiple_paths);
         
         error_log('Database operation successful. Result: ' . $result);
         
@@ -1050,6 +1761,7 @@ class PHMapPlugin {
         
         global $wpdb;
         $wpdb->delete($this->table_name, ['id' => $button_id]);
+        $wpdb->delete($this->route_waypoints_table, ['route_id' => $button_id], ['%d']);
         
         wp_redirect(admin_url('admin.php?page=ph-map-buttons&message=' . urlencode('Button deleted successfully!')));
         exit;
@@ -1097,7 +1809,13 @@ class PHMapPlugin {
             'zoom' => 12,
         ], $atts, 'ph_map');
 
-        $buttons = $wpdb->get_results("SELECT * FROM $this->table_name ORDER BY sort_order ASC, id ASC");
+        $buttons = $wpdb->get_results(
+            "SELECT b.*, po.name AS origin_name, pd.name AS destination_name
+             FROM {$this->table_name} b
+             LEFT JOIN {$this->places_table} po ON po.id = b.origin_place_id
+             LEFT JOIN {$this->places_table} pd ON pd.id = b.destination_place_id
+             ORDER BY b.sort_order ASC, b.id ASC"
+        );
         
         $id = 'phmap_' . uniqid();
         $mapId = $id . '_map';
@@ -1105,22 +1823,24 @@ class PHMapPlugin {
         if ($height === '') { $height = '600px'; }
         $zoom = max(3, min(18, (int)$atts['zoom']));
 
-        $build_route_meta = function($label, $description) {
-            $clean_label = trim(preg_replace('/\s+/', ' ', wp_strip_all_tags((string)$label)));
+        $build_route_meta = function($display_label, $description, $start, $end) {
+            $clean_label = trim(preg_replace('/\s+/', ' ', wp_strip_all_tags((string)$display_label)));
             $clean_description = trim(preg_replace('/\s+/', ' ', wp_strip_all_tags((string)$description)));
-
-            $start = '';
-            $end = '';
             $via = '';
 
-            if (preg_match('/^(.*?)\s*(?:-|–|—)\s*(.+)$/u', $clean_label, $parts)) {
-                $start = trim($parts[1]);
-                $end = trim($parts[2]);
+            $start = trim((string)$start);
+            $end = trim((string)$end);
 
-                if (preg_match('/^(.+?)\s+(?:via)\s+(.+)$/i', $end, $end_parts)) {
-                    $end = trim($end_parts[1]);
-                    $via = trim($end_parts[2]);
+            if ($start === '' || $end === '') {
+                if (preg_match('/^(.*?)\s*(?:-|–|—)\s*(.+)$/u', $clean_label, $parts)) {
+                    $start = trim($parts[1]);
+                    $end = trim($parts[2]);
                 }
+            }
+
+            if ($end !== '' && preg_match('/^(.+?)\s+(?:via)\s+(.+)$/i', $end, $end_parts)) {
+                $end = trim($end_parts[1]);
+                $via = trim($end_parts[2]);
             }
 
             if ($via === '' && preg_match('/\bvia\b\s+(.+)$/i', $clean_description, $via_parts)) {
@@ -1186,10 +1906,13 @@ class PHMapPlugin {
             }
 
             $description = isset($btn->description) ? $btn->description : '';
-            $meta = $build_route_meta($btn->label, $description);
+            $origin_name = !empty($btn->origin_name) ? $btn->origin_name : $btn->from_location;
+            $destination_name = !empty($btn->destination_name) ? $btn->destination_name : $btn->to_location;
+            $display_label = $this->get_route_display_label($btn);
+            $meta = $build_route_meta($display_label, $description, $origin_name, $destination_name);
 
             return [
-                'label' => $btn->label,
+                'label' => $display_label,
                 'description' => $description,
                 'waypoints' => $waypoints,
                 'route' => $route,
@@ -1198,6 +1921,8 @@ class PHMapPlugin {
                 'color' => isset($btn->color) ? $btn->color : '#ff2f6d',
                 'route_type' => isset($btn->route_type) ? $btn->route_type : 'transportation',
                 'multiple_paths' => $multiple_paths,
+                'variant_code' => isset($btn->variant_code) ? $btn->variant_code : '',
+                'sub_label' => isset($btn->sub_label) ? $btn->sub_label : '',
                 'has_inbound' => $has_inbound,
                 'has_outbound' => $has_outbound,
                 'main_label' => $meta['main_label'],
@@ -1209,12 +1934,12 @@ class PHMapPlugin {
                 'search_text' => $meta['search_text'],
                 'from_search' => strtolower(trim(implode(' ', array_filter([
                     $meta['start'],
-                    $btn->label,
+                    $display_label,
                     $description
                 ])))),
                 'to_search' => strtolower(trim(implode(' ', array_filter([
                     $meta['end'],
-                    $btn->label,
+                    $display_label,
                     $description
                 ])))),
             ];
