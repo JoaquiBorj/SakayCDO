@@ -1,1 +1,32 @@
-/* phpcs:ignore */
+.sortable-table tbody {
+                    cursor: move;
+                }
+                .sortable-table tbody tr {
+                    transition: background-color 0.2s ease;
+                }
+                .sortable-table tbody tr:hover {
+                    background-color: #f9f9f9;
+                }
+                .sortable-table tbody tr.ui-sortable-helper {
+                    background-color: #fff3cd;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+                }
+                .sortable-table tbody tr.ui-sortable-placeholder {
+                    background-color: #d1ecf1;
+                    height: 60px;
+                }
+                .drag-handle {
+                    cursor: move;
+                    color: #666;
+                    font-size: 16px;
+                    margin-right: 8px;
+                }
+                .drag-handle:hover {
+                    color: #0073aa;
+                }
+                .phmap-filters-active .drag-handle {
+                    opacity: 0.4;
+                    cursor: not-allowed;
+                }
+
+
