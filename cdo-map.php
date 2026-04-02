@@ -1948,6 +1948,8 @@ class PHMapPlugin {
         ob_start();
         ?>
         <style>
+            @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
             html.phmap-page-lock,
             body.phmap-page-lock {
                 height: 100%;
@@ -1955,15 +1957,17 @@ class PHMapPlugin {
             }
 
             #<?php echo $id; ?> { 
-                --ph-accent: #1f7a8c;
-                --ph-border: #d8dde3;
+                --ph-accent: #FFC107;
+                --ph-primary: #1565C0;
+                --ph-border: #dee2e6;
                 --ph-panel: #ffffff;
-                --ph-bg: #f4f7fb;
-                --ph-text: #1f2a37;
-                --ph-text-light: #4b5563;
-                --ph-focus: #0e7490;
+                --ph-bg: #F8F9FA;
+                --ph-text: #212529;
+                --ph-text-light: #6C757D;
+                --ph-focus: #1565C0;
+                --ph-radius: 8px;
                 color: var(--ph-text);
-                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                font-family: 'Plus Jakarta Sans', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
                 position: fixed;
                 inset: 0;
                 z-index: 9999;
@@ -1977,13 +1981,13 @@ class PHMapPlugin {
 
             #<?php echo $id; ?> .phmap-shell {
                 position: relative;
-                border: 1px solid var(--ph-border);
+                border: 0;
                 border-radius: 0;
                 overflow: hidden;
                 height: 100%;
                 min-height: 100vh;
                 min-height: 100dvh;
-                background: #dbe8f3;
+                background: linear-gradient(180deg, #fdfdfd 0%, #f8f9fa 100%);
             }
 
             #<?php echo $id; ?> .phmap-map-canvas {
@@ -1998,12 +2002,13 @@ class PHMapPlugin {
                 top: 14px;
                 z-index: 900;
                 max-width: min(420px, calc(100% - 28px));
-                background: rgba(20, 32, 47, 0.72);
-                color: #f8fafc;
-                border: 1px solid rgba(255, 255, 255, 0.2);
+                background: rgba(33, 37, 41, 0.86);
+                color: #ffffff;
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                border-left: 4px solid var(--ph-accent);
                 backdrop-filter: blur(10px);
                 -webkit-backdrop-filter: blur(10px);
-                border-radius: 10px;
+                border-radius: var(--ph-radius);
                 padding: 8px 12px;
                 font-size: 12px;
                 line-height: 1.45;
@@ -2015,12 +2020,12 @@ class PHMapPlugin {
                 right: 12px;
                 bottom: 12px;
                 z-index: 1000;
-                background: rgba(245, 250, 255, 0.92);
-                border: 1px solid rgba(203, 213, 225, 0.9);
-                border-radius: 16px;
+                background: rgba(255, 255, 255, 0.96);
+                border: 1px solid var(--ph-border);
+                border-radius: var(--ph-radius);
                 backdrop-filter: blur(12px);
                 -webkit-backdrop-filter: blur(12px);
-                box-shadow: 0 20px 40px rgba(15, 23, 42, 0.25);
+                box-shadow: 0 12px 28px rgba(33, 37, 41, 0.14);
                 padding: 10px;
                 height: min(78%, 620px);
                 max-height: calc(100% - 24px);
@@ -2038,7 +2043,7 @@ class PHMapPlugin {
                 width: 56px;
                 height: 5px;
                 border-radius: 999px;
-                background: #93a9bc;
+                background: var(--ph-accent);
                 margin: 2px auto 8px;
                 border: 0;
                 display: block;
@@ -2056,13 +2061,15 @@ class PHMapPlugin {
 
             #<?php echo $id; ?> .phmap-sheet-title {
                 font-size: 14px;
-                font-weight: 700;
-                color: #0f172a;
+                font-weight: 800;
+                letter-spacing: -0.01em;
+                color: var(--ph-text);
             }
 
             #<?php echo $id; ?> .phmap-sheet-subtitle {
                 font-size: 12px;
-                color: #475569;
+                color: var(--ph-text-light);
+                line-height: 1.6;
             }
 
             #<?php echo $id; ?> .phmap-sheet-content {
@@ -2073,18 +2080,19 @@ class PHMapPlugin {
             }
 
             #<?php echo $id; ?> .phmap-section {
-                background: rgba(255, 255, 255, 0.9);
-                border: 1px solid rgba(203, 213, 225, 0.95);
-                border-radius: 12px;
+                background: #ffffff;
+                border: 1px solid var(--ph-border);
+                border-radius: var(--ph-radius);
                 padding: 10px;
                 margin-bottom: 8px;
             }
 
             #<?php echo $id; ?> .phmap-section-title {
                 font-size: 15px;
-                font-weight: 700;
+                font-weight: 800;
                 margin-bottom: 4px;
-                color: #182433;
+                color: var(--ph-text);
+                letter-spacing: -0.01em;
             }
 
             #<?php echo $id; ?> .phmap-section-subtitle {
@@ -2122,13 +2130,13 @@ class PHMapPlugin {
             #<?php echo $id; ?> .phmap-search-label {
                 font-size: 12px;
                 font-weight: 600;
-                color: #334155;
+                color: var(--ph-text);
             }
 
             #<?php echo $id; ?> .phmap-search-input {
                 width: 100%;
                 border: 1px solid var(--ph-border);
-                border-radius: 10px;
+                border-radius: var(--ph-radius);
                 background: #fff;
                 font-size: 15px;
                 line-height: 1.35;
@@ -2137,7 +2145,7 @@ class PHMapPlugin {
             }
 
             #<?php echo $id; ?> .phmap-search-input:focus {
-                outline: 2px solid rgba(14, 116, 144, 0.2);
+                outline: 2px solid rgba(21, 101, 192, 0.2);
                 border-color: var(--ph-focus);
             }
 
@@ -2166,7 +2174,7 @@ class PHMapPlugin {
                 background: #fff;
                 color: var(--ph-text);
                 padding: 14px;
-                border-radius: 12px;
+                border-radius: var(--ph-radius);
                 cursor: pointer;
                 transition: all 0.3s ease;
                 position: relative;
@@ -2175,17 +2183,19 @@ class PHMapPlugin {
                 display: flex;
                 flex-direction: column;
                 justify-content: center;
+                box-shadow: 0 4px 10px rgba(33, 37, 41, 0.05);
             }
 
             #<?php echo $id; ?> .phmap-btn:hover {
-                border-color: #aeb8c4;
-                box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+                border-color: #ced4da;
+                box-shadow: 0 8px 18px rgba(33, 37, 41, 0.1);
+                transform: translateY(-1px);
             }
 
             #<?php echo $id; ?> .phmap-btn.active {
-                border-color: var(--ph-focus);
-                box-shadow: 0 0 0 2px rgba(14, 116, 144, 0.22), 0 6px 18px rgba(15, 23, 42, 0.12);
-                background: #f3fbfd;
+                border-color: var(--ph-primary);
+                box-shadow: 0 0 0 2px rgba(21, 101, 192, 0.22), 0 10px 24px rgba(21, 101, 192, 0.18);
+                background: #ffffff;
             }
 
             #<?php echo $id; ?> .phmap-btn.is-hidden {
@@ -2202,18 +2212,20 @@ class PHMapPlugin {
                 font-size: 11px;
                 letter-spacing: 0.04em;
                 text-transform: uppercase;
-                color: #5b6777;
-                background: #eef2f7;
+                color: #5d4c00;
+                background: rgba(255, 193, 7, 0.24);
                 border-radius: 999px;
                 padding: 4px 8px;
                 margin-bottom: 8px;
+                font-weight: 700;
             }
 
             #<?php echo $id; ?> .phmap-btn-title {
                 font-size: 17px;
-                font-weight: 700;
+                font-weight: 800;
                 line-height: 1.3;
                 margin-bottom: 6px;
+                letter-spacing: -0.01em;
             }
 
             #<?php echo $id; ?> .phmap-btn-via,
@@ -2235,11 +2247,11 @@ class PHMapPlugin {
             }
 
             #<?php echo $id; ?> .phmap-direction-btn {
-                background: #f7fafc;
-                border: 1px solid #d6dce4;
-                color: #334155;
+                background: #f8f9fa;
+                border: 1px solid #dfe3e8;
+                color: #495057;
                 padding: 8px 10px;
-                border-radius: 8px;
+                border-radius: var(--ph-radius);
                 font-size: 12px;
                 line-height: 1.25;
                 min-height: 36px;
@@ -2248,14 +2260,14 @@ class PHMapPlugin {
             }
 
             #<?php echo $id; ?> .phmap-direction-btn:hover {
-                background: #ecf3fb;
-                border-color: #afc3da;
+                background: #eef4fb;
+                border-color: #b7cde9;
             }
 
             #<?php echo $id; ?> .phmap-direction-btn.active {
-                background: #dff2f7;
-                color: #0f4f5b;
-                border-color: #79b8c4;
+                background: var(--ph-primary);
+                color: #ffffff;
+                border-color: var(--ph-primary);
                 font-weight: 600;
             }
 
@@ -2266,9 +2278,9 @@ class PHMapPlugin {
             }
 
             #<?php echo $id; ?> .phmap-action-chip {
-                border: 1px solid #bfd0e0;
-                background: rgba(255, 255, 255, 0.9);
-                color: #1f2937;
+                border: 1px solid #d9dee4;
+                background: #ffffff;
+                color: var(--ph-text);
                 border-radius: 999px;
                 font-size: 12px;
                 line-height: 1.2;
@@ -2276,43 +2288,55 @@ class PHMapPlugin {
                 cursor: pointer;
                 min-height: 34px;
                 transition: background 0.2s ease, border-color 0.2s ease;
+                font-weight: 600;
             }
 
             #<?php echo $id; ?> .phmap-action-chip:hover {
-                background: #eff6ff;
-                border-color: #9fb8cf;
+                background: #f8f9fa;
+                border-color: #cfd5dc;
+            }
+
+            #<?php echo $id; ?> .phmap-view-all {
+                background: var(--ph-accent);
+                color: #212529;
+                border-color: #f0b300;
+            }
+
+            #<?php echo $id; ?> .phmap-view-all:hover {
+                background: #ffca2c;
+                border-color: #e7ac00;
             }
 
             #<?php echo $id; ?> .phmap-map-status {
                 background: #ffffff;
                 border: 1px solid var(--ph-border);
-                border-left: 4px solid var(--ph-focus);
-                border-radius: 10px;
+                border-left: 4px solid var(--ph-primary);
+                border-radius: var(--ph-radius);
                 padding: 10px 12px;
-                color: #243447;
+                color: var(--ph-text);
                 font-size: 13px;
-                line-height: 1.4;
+                line-height: 1.6;
             }
 
             #<?php echo $id; ?> .phmap-selected-summary {
-                background: #f8fbff;
-                border: 1px solid #d9e6ef;
-                border-left: 4px solid #5aa0b2;
-                border-radius: 10px;
+                background: #fffef8;
+                border: 1px solid #f1e3b5;
+                border-left: 4px solid var(--ph-accent);
+                border-radius: var(--ph-radius);
                 padding: 10px 12px;
             }
 
             #<?php echo $id; ?> .phmap-selected-route-name {
                 font-size: 14px;
-                font-weight: 700;
-                color: #1f2a37;
+                font-weight: 800;
+                color: var(--ph-text);
                 margin-bottom: 4px;
             }
 
             #<?php echo $id; ?> .phmap-selected-route-meta {
                 font-size: 12px;
-                color: #4b5563;
-                line-height: 1.45;
+                color: var(--ph-text-light);
+                line-height: 1.6;
             }
 
             #<?php echo $mapId; ?> { 
@@ -2327,7 +2351,7 @@ class PHMapPlugin {
             #<?php echo $id; ?> .phmap-help {
                 margin-top: 8px;
                 font-size: 12px;
-                color: #334155;
+                color: var(--ph-text-light);
             }
 
             @media (max-width: 860px) {
@@ -2386,15 +2410,15 @@ class PHMapPlugin {
             <div class="phmap-shell">
                 <div class="phmap-map-canvas">
                     <div id="<?php echo $mapId; ?>" aria-label="Map of Cagayan de Oro"></div>
-                    <div class="phmap-floating-status">Focused on Cagayan de Oro commuter routes.</div>
+                    <div class="phmap-floating-status">Master your commute across Cagayan de Oro routes.</div>
                 </div>
 
                 <div class="phmap-bottom-sheet" role="region" aria-label="Route finder">
                     <button type="button" class="phmap-sheet-handle" aria-label="Toggle route panel"></button>
                     <div class="phmap-sheet-head">
                         <div>
-                            <div class="phmap-sheet-title">Find a Route</div>
-                            <div class="phmap-sheet-subtitle">Enter your From and To, then choose a route to preview it on the map.</div>
+                            <div class="phmap-sheet-title">Find your way</div>
+                            <div class="phmap-sheet-subtitle">Enter From and To, then pick a route to preview it instantly on the map.</div>
                         </div>
                         <div class="phmap-result-count" aria-live="polite">Enter From/To to search</div>
                     </div>
@@ -2448,7 +2472,7 @@ class PHMapPlugin {
                     $route_type = $button['route_type'];
                     $has_inbound = $button['has_inbound'];
                     $has_outbound = $button['has_outbound'];
-                    $badge_label = $route_type === 'transportation' ? 'Commuter route' : 'Personal route';
+                    $badge_label = 'Route';
                     ?>
                     <button type="button" 
                             class="phmap-btn phmap-path-btn" 
