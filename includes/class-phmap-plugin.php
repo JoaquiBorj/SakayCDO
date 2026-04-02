@@ -826,14 +826,28 @@ class PHMapPlugin {
         $selected_origin_name = $origin_place_id > 0 ? $this->get_place_name_by_id($origin_place_id) : '';
         $selected_destination_name = $destination_place_id > 0 ? $this->get_place_name_by_id($destination_place_id) : '';
 
-        $from_location = $this->normalize_place_name($origin_place_name_input !== '' ? $origin_place_name_input : $selected_origin_name);
-        $to_location = $this->normalize_place_name($destination_place_name_input !== '' ? $destination_place_name_input : $selected_destination_name);
+        $typed_origin_name = $this->normalize_place_name($origin_place_name_input);
+        $typed_destination_name = $this->normalize_place_name($destination_place_name_input);
 
-        if ($origin_place_id <= 0 && $from_location !== '') {
+        // If the user typed a place name, prefer it and rebind to that canonical place.
+        if ($typed_origin_name !== '') {
+            $from_location = $typed_origin_name;
             $origin_place_id = $this->upsert_place($from_location, 'origin');
+        } else {
+            $from_location = $this->normalize_place_name($selected_origin_name);
+            if ($origin_place_id <= 0 && $from_location !== '') {
+                $origin_place_id = $this->upsert_place($from_location, 'origin');
+            }
         }
-        if ($destination_place_id <= 0 && $to_location !== '') {
+
+        if ($typed_destination_name !== '') {
+            $to_location = $typed_destination_name;
             $destination_place_id = $this->upsert_place($to_location, 'destination');
+        } else {
+            $to_location = $this->normalize_place_name($selected_destination_name);
+            if ($destination_place_id <= 0 && $to_location !== '') {
+                $destination_place_id = $this->upsert_place($to_location, 'destination');
+            }
         }
 
         if ($origin_place_id > 0 && $from_location === '') {
