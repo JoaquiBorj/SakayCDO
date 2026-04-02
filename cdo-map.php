@@ -1998,10 +1998,10 @@ class PHMapPlugin {
 
             #<?php echo $id; ?> .phmap-floating-status {
                 position: absolute;
-                left: 14px;
+                right: 16px;
                 top: 14px;
                 z-index: 900;
-                max-width: min(420px, calc(100% - 28px));
+                max-width: min(380px, calc(100% - 32px));
                 background: rgba(33, 37, 41, 0.86);
                 color: #ffffff;
                 border: 1px solid rgba(255, 255, 255, 0.15);
@@ -2009,16 +2009,17 @@ class PHMapPlugin {
                 backdrop-filter: blur(10px);
                 -webkit-backdrop-filter: blur(10px);
                 border-radius: var(--ph-radius);
-                padding: 8px 12px;
+                padding: 9px 12px;
                 font-size: 12px;
                 line-height: 1.45;
             }
 
             #<?php echo $id; ?> .phmap-bottom-sheet {
                 position: absolute;
-                left: 12px;
-                right: 12px;
-                bottom: 12px;
+                left: 16px;
+                top: 16px;
+                bottom: auto;
+                width: min(440px, calc(100% - 32px));
                 z-index: 1000;
                 background: rgba(255, 255, 255, 0.96);
                 border: 1px solid var(--ph-border);
@@ -2026,9 +2027,9 @@ class PHMapPlugin {
                 backdrop-filter: blur(12px);
                 -webkit-backdrop-filter: blur(12px);
                 box-shadow: 0 12px 28px rgba(33, 37, 41, 0.14);
-                padding: 10px;
-                height: min(78%, 620px);
-                max-height: calc(100% - 24px);
+                padding: 12px;
+                height: min(88vh, 760px);
+                max-height: calc(100% - 32px);
                 overflow: hidden;
                 transition: transform 0.28s ease;
                 display: flex;
@@ -2036,38 +2037,54 @@ class PHMapPlugin {
             }
 
             #<?php echo $id; ?>.phmap-sheet-collapsed .phmap-bottom-sheet {
-                transform: translateY(calc(100% - 74px));
+                transform: translateX(calc(-100% + 70px));
             }
 
             #<?php echo $id; ?> .phmap-sheet-handle {
-                width: 56px;
-                height: 5px;
-                border-radius: 999px;
-                background: var(--ph-accent);
-                margin: 2px auto 8px;
+                position: absolute;
+                right: -30px;
+                top: 14px;
+                width: 30px;
+                height: 72px;
+                border-radius: 0 8px 8px 0;
+                background: var(--ph-primary);
                 border: 0;
-                display: block;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
                 cursor: pointer;
                 padding: 0;
+                box-shadow: 0 8px 18px rgba(21, 101, 192, 0.28);
+                z-index: 2;
+            }
+
+            #<?php echo $id; ?> .phmap-sheet-handle::before {
+                content: '';
+                width: 4px;
+                height: 32px;
+                border-radius: 999px;
+                background: rgba(255, 255, 255, 0.9);
             }
 
             #<?php echo $id; ?> .phmap-sheet-head {
                 display: flex;
                 justify-content: space-between;
-                align-items: center;
+                align-items: flex-start;
                 gap: 8px;
-                padding: 2px 4px 8px;
+                padding: 0 2px 10px;
+                border-bottom: 1px solid #edf0f2;
             }
 
             #<?php echo $id; ?> .phmap-sheet-title {
-                font-size: 14px;
+                font-size: 22px;
                 font-weight: 800;
                 letter-spacing: -0.01em;
                 color: var(--ph-text);
+                line-height: 1.2;
             }
 
             #<?php echo $id; ?> .phmap-sheet-subtitle {
-                font-size: 12px;
+                font-size: 13px;
                 color: var(--ph-text-light);
                 line-height: 1.6;
             }
@@ -2076,15 +2093,16 @@ class PHMapPlugin {
                 overflow-y: auto;
                 flex: 1 1 auto;
                 min-height: 0;
-                padding-right: 2px;
+                padding-right: 3px;
+                padding-top: 10px;
             }
 
             #<?php echo $id; ?> .phmap-section {
                 background: #ffffff;
                 border: 1px solid var(--ph-border);
                 border-radius: var(--ph-radius);
-                padding: 10px;
-                margin-bottom: 8px;
+                padding: 12px;
+                margin-bottom: 10px;
             }
 
             #<?php echo $id; ?> .phmap-section-title {
@@ -2095,6 +2113,31 @@ class PHMapPlugin {
                 letter-spacing: -0.01em;
             }
 
+            #<?php echo $id; ?> .phmap-step-label {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                font-size: 11px;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.06em;
+                color: var(--ph-primary);
+                margin-bottom: 6px;
+            }
+
+            #<?php echo $id; ?> .phmap-step-dot {
+                width: 16px;
+                height: 16px;
+                border-radius: 50%;
+                background: rgba(21, 101, 192, 0.14);
+                color: var(--ph-primary);
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 10px;
+                font-weight: 700;
+            }
+
             #<?php echo $id; ?> .phmap-section-subtitle {
                 margin: 0;
                 font-size: 13px;
@@ -2103,15 +2146,13 @@ class PHMapPlugin {
 
             #<?php echo $id; ?> .phmap-toolbar {
                 display: flex;
-                gap: 12px;
-                align-items: center;
-                justify-content: space-between;
-                flex-wrap: wrap;
-                margin-top: 8px;
+                gap: 10px;
+                align-items: flex-start;
+                flex-direction: column;
             }
 
             #<?php echo $id; ?> .phmap-search-wrap {
-                flex: 1 1 280px;
+                width: 100%;
             }
 
             #<?php echo $id; ?> .phmap-search-grid {
@@ -2138,7 +2179,7 @@ class PHMapPlugin {
                 border: 1px solid var(--ph-border);
                 border-radius: var(--ph-radius);
                 background: #fff;
-                font-size: 15px;
+                font-size: 16px;
                 line-height: 1.35;
                 padding: 12px 14px;
                 color: var(--ph-text);
@@ -2150,22 +2191,25 @@ class PHMapPlugin {
             }
 
             #<?php echo $id; ?> .phmap-result-count {
-                font-size: 13px;
-                color: var(--ph-text-light);
-                white-space: nowrap;
+                font-size: 12px;
+                color: var(--ph-primary);
+                font-weight: 700;
+                white-space: normal;
+                text-align: right;
             }
 
             #<?php echo $id; ?> .phmap-result-detail {
                 font-size: 12px;
-                color: #64748b;
-                margin-top: 2px;
-                min-height: 20px;
+                color: var(--ph-text-light);
+                margin-top: 8px;
+                min-height: 36px;
+                line-height: 1.55;
             }
 
             #<?php echo $id; ?> .phmap-controls {
                 display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-                gap: 10px;
+                grid-template-columns: 1fr;
+                gap: 8px;
             }
 
             #<?php echo $id; ?> .phmap-btn {
@@ -2176,26 +2220,28 @@ class PHMapPlugin {
                 padding: 14px;
                 border-radius: var(--ph-radius);
                 cursor: pointer;
-                transition: all 0.3s ease;
+                transition: all 0.2s ease;
                 position: relative;
                 text-align: left;
-                min-height: 112px;
+                min-height: 96px;
                 display: flex;
                 flex-direction: column;
                 justify-content: center;
-                box-shadow: 0 4px 10px rgba(33, 37, 41, 0.05);
+                box-shadow: 0 2px 8px rgba(33, 37, 41, 0.05);
+                border-left: 4px solid transparent;
             }
 
             #<?php echo $id; ?> .phmap-btn:hover {
                 border-color: #ced4da;
-                box-shadow: 0 8px 18px rgba(33, 37, 41, 0.1);
+                box-shadow: 0 8px 14px rgba(33, 37, 41, 0.08);
                 transform: translateY(-1px);
             }
 
             #<?php echo $id; ?> .phmap-btn.active {
                 border-color: var(--ph-primary);
-                box-shadow: 0 0 0 2px rgba(21, 101, 192, 0.22), 0 10px 24px rgba(21, 101, 192, 0.18);
-                background: #ffffff;
+                border-left-color: var(--route-accent, var(--ph-primary));
+                box-shadow: 0 0 0 2px rgba(21, 101, 192, 0.14), 0 6px 16px rgba(21, 101, 192, 0.12);
+                background: #fefefe;
             }
 
             #<?php echo $id; ?> .phmap-btn.is-hidden {
@@ -2223,8 +2269,8 @@ class PHMapPlugin {
             #<?php echo $id; ?> .phmap-btn-title {
                 font-size: 17px;
                 font-weight: 800;
-                line-height: 1.3;
-                margin-bottom: 6px;
+                line-height: 1.28;
+                margin-bottom: 4px;
                 letter-spacing: -0.01em;
             }
 
@@ -2257,6 +2303,10 @@ class PHMapPlugin {
                 min-height: 36px;
                 cursor: pointer;
                 transition: all 0.2s ease;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                font-weight: 600;
             }
 
             #<?php echo $id; ?> .phmap-direction-btn:hover {
@@ -2275,6 +2325,7 @@ class PHMapPlugin {
                 display: flex;
                 flex-wrap: wrap;
                 gap: 8px;
+                width: 100%;
             }
 
             #<?php echo $id; ?> .phmap-action-chip {
@@ -2289,6 +2340,7 @@ class PHMapPlugin {
                 min-height: 34px;
                 transition: background 0.2s ease, border-color 0.2s ease;
                 font-weight: 600;
+                flex: 1 1 48%;
             }
 
             #<?php echo $id; ?> .phmap-action-chip:hover {
@@ -2300,6 +2352,10 @@ class PHMapPlugin {
                 background: var(--ph-accent);
                 color: #212529;
                 border-color: #f0b300;
+            }
+
+            #<?php echo $id; ?> .phmap-view-all.active {
+                box-shadow: inset 0 0 0 2px rgba(33, 37, 41, 0.2);
             }
 
             #<?php echo $id; ?> .phmap-view-all:hover {
@@ -2314,7 +2370,7 @@ class PHMapPlugin {
                 border-radius: var(--ph-radius);
                 padding: 10px 12px;
                 color: var(--ph-text);
-                font-size: 13px;
+                font-size: 12px;
                 line-height: 1.6;
             }
 
@@ -2349,7 +2405,7 @@ class PHMapPlugin {
             }
 
             #<?php echo $id; ?> .phmap-help {
-                margin-top: 8px;
+                margin-top: 6px;
                 font-size: 12px;
                 color: var(--ph-text-light);
             }
@@ -2357,6 +2413,10 @@ class PHMapPlugin {
             @media (max-width: 860px) {
                 #<?php echo $id; ?> .phmap-controls {
                     grid-template-columns: 1fr;
+                }
+
+                #<?php echo $id; ?> .phmap-floating-status {
+                    max-width: min(320px, calc(100% - 24px));
                 }
             }
 
@@ -2386,13 +2446,31 @@ class PHMapPlugin {
                 #<?php echo $id; ?> .phmap-bottom-sheet {
                     left: 8px;
                     right: 8px;
+                    width: auto;
+                    top: auto;
                     bottom: 8px;
                     height: min(86%, 560px);
                     max-height: calc(100% - 16px);
+                    padding: 10px;
+                }
+
+                #<?php echo $id; ?> .phmap-sheet-handle {
+                    position: static;
+                    width: 56px;
+                    height: 5px;
+                    border-radius: 999px;
+                    background: var(--ph-accent);
+                    margin: 2px auto 10px;
+                    box-shadow: none;
+                    display: block;
+                }
+
+                #<?php echo $id; ?> .phmap-sheet-handle::before {
+                    display: none;
                 }
 
                 #<?php echo $id; ?>.phmap-sheet-collapsed .phmap-bottom-sheet {
-                    transform: translateY(calc(100% - 66px));
+                    transform: translateY(calc(100% - 70px));
                 }
 
                 #<?php echo $id; ?> .phmap-action-chips {
@@ -2402,6 +2480,21 @@ class PHMapPlugin {
                 #<?php echo $id; ?> .phmap-action-chip {
                     font-size: 11px;
                     padding: 8px 10px;
+                    flex: 1 1 100%;
+                }
+
+                #<?php echo $id; ?> .phmap-sheet-title {
+                    font-size: 18px;
+                }
+
+                #<?php echo $id; ?> .phmap-sheet-subtitle {
+                    font-size: 12px;
+                }
+
+                #<?php echo $id; ?> .phmap-floating-status {
+                    right: 8px;
+                    top: 8px;
+                    max-width: calc(100% - 16px);
                 }
             }
         </style>
@@ -2410,20 +2503,21 @@ class PHMapPlugin {
             <div class="phmap-shell">
                 <div class="phmap-map-canvas">
                     <div id="<?php echo $mapId; ?>" aria-label="Map of Cagayan de Oro"></div>
-                    <div class="phmap-floating-status">Master your commute across Cagayan de Oro routes.</div>
+                    <div class="phmap-floating-status">Route preview map. Enter From and To to explore predefined jeepney routes.</div>
                 </div>
 
                 <div class="phmap-bottom-sheet" role="region" aria-label="Route finder">
                     <button type="button" class="phmap-sheet-handle" aria-label="Toggle route panel"></button>
                     <div class="phmap-sheet-head">
                         <div>
-                            <div class="phmap-sheet-title">Find your way</div>
-                            <div class="phmap-sheet-subtitle">Enter From and To, then pick a route to preview it instantly on the map.</div>
+                            <div class="phmap-sheet-title">Find your jeepney route</div>
+                            <div class="phmap-sheet-subtitle">Type your origin and destination. We will show matching predefined routes you can preview on the map.</div>
                         </div>
                         <div class="phmap-result-count" aria-live="polite">Enter From/To to search</div>
                     </div>
                     <div class="phmap-sheet-content">
                         <div class="phmap-section phmap-search-section">
+                            <div class="phmap-step-label"><span class="phmap-step-dot">1</span> Enter Route</div>
                             <div class="phmap-toolbar">
                                 <div class="phmap-search-wrap">
                                     <div class="phmap-search-grid">
@@ -2443,26 +2537,18 @@ class PHMapPlugin {
 
                         <?php if (!empty($button_view_data)): ?>
                             <div class="phmap-section">
+                                <div class="phmap-step-label"><span class="phmap-step-dot">2</span> Quick Actions</div>
                                 <div class="phmap-action-chips">
-                                    <button type="button" class="phmap-action-chip phmap-view-all" data-action="view-all">Show All Routes</button>
-                                    <button type="button" class="phmap-action-chip phmap-clear">Reset Map</button>
+                                    <button type="button" class="phmap-action-chip phmap-view-all" data-action="view-all">Preview all routes</button>
+                                    <button type="button" class="phmap-action-chip phmap-clear">Clear map preview</button>
                                 </div>
                             </div>
                         <?php endif; ?>
 
-                        <div class="phmap-section phmap-selection-section">
-                            <div class="phmap-section-title">Selected Route</div>
-                            <div class="phmap-selected-summary" aria-live="polite">
-                                <div class="phmap-selected-route-name">No route selected yet</div>
-                                <div class="phmap-selected-route-meta">Search and choose a route to preview direction and path details.</div>
-                            </div>
-                            <div class="phmap-help">Map updates as soon as you select a route card or direction.</div>
-                            <div class="phmap-map-status" aria-live="polite">Select a route to view it on the map.</div>
-                        </div>
-
                         <div class="phmap-section phmap-results-section">
-                        <div class="phmap-section-title">Route Results</div>
-                        <p class="phmap-section-subtitle">Choose a route card to preview and plot it on the map.</p>
+                        <div class="phmap-step-label"><span class="phmap-step-dot">3</span> View Options</div>
+                        <div class="phmap-section-title">Route options</div>
+                        <p class="phmap-section-subtitle">Tap a route card to preview it on the map. Use inbound/outbound chips to focus direction.</p>
                         <div class="phmap-controls">
                 <?php foreach ($button_view_data as $index => $button): ?>
                     <?php
@@ -2509,6 +2595,16 @@ class PHMapPlugin {
                 <?php endforeach; ?>
                         </div>
                         </div>
+
+                        <div class="phmap-section phmap-selection-section">
+                            <div class="phmap-section-title">Route preview</div>
+                            <div class="phmap-selected-summary" aria-live="polite">
+                                <div class="phmap-selected-route-name">No route selected yet</div>
+                                <div class="phmap-selected-route-meta">Choose a route card above to show the path and direction on the map.</div>
+                            </div>
+                            <div class="phmap-help">Tip: route colors and path markers update when you select a saved route or direction.</div>
+                            <div class="phmap-map-status" aria-live="polite">Select a route option to preview it on the map.</div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -2533,7 +2629,7 @@ class PHMapPlugin {
 
             function updateMapStatus(title, subtitle) {
                 if (!mapStatusEl) return;
-                var text = title || 'Select a route to view it on the map.';
+                var text = title || 'Select a route option to preview it on the map.';
                 if (subtitle) {
                     text += ' ' + subtitle;
                 }
@@ -2545,7 +2641,7 @@ class PHMapPlugin {
 
                 if (!config) {
                     selectedRouteNameEl.textContent = 'No route selected yet';
-                    selectedRouteMetaEl.textContent = 'Search and choose a route to preview direction and path details.';
+                    selectedRouteMetaEl.textContent = 'Enter From and To, then choose a route card to preview path details.';
                     return;
                 }
 
@@ -2570,8 +2666,6 @@ class PHMapPlugin {
             function setSelectionState(hasSelection) {
                 root.classList.toggle('phmap-no-selection', !hasSelection);
                 root.classList.toggle('phmap-has-selection', hasSelection);
-                root.classList.toggle('phmap-sheet-collapsed', hasSelection);
-                root.classList.toggle('phmap-sheet-expanded', !hasSelection);
             }
 
             function setSheetCollapsed(collapsed) {
@@ -2602,17 +2696,17 @@ class PHMapPlugin {
 
                 if (resultCountEl) {
                     if (!hasQuery) {
-                        resultCountEl.textContent = 'Enter From/To to search';
+                        resultCountEl.textContent = 'Step 1: Enter From or To';
                     } else if (visibleCount === 0) {
-                        resultCountEl.textContent = 'No matching routes';
+                        resultCountEl.textContent = 'No route match yet';
                     } else {
-                        resultCountEl.textContent = 'Showing ' + visibleCount + ' route' + (visibleCount === 1 ? '' : 's');
+                        resultCountEl.textContent = visibleCount + ' route option' + (visibleCount === 1 ? '' : 's') + ' found';
                     }
                 }
 
                 if (resultDetailEl) {
                     if (!hasQuery) {
-                        resultDetailEl.textContent = 'Enter at least one field to start filtering routes. Matching route cards will appear below.';
+                        resultDetailEl.textContent = 'Start with at least one field. Route options will appear and update as you type.';
                     } else {
                         var terms = [];
                         if (fromQuery.length > 0) {
@@ -2621,7 +2715,7 @@ class PHMapPlugin {
                         if (toQuery.length > 0) {
                             terms.push('To "' + toQuery + '"');
                         }
-                        resultDetailEl.textContent = 'Filtering by ' + terms.join(' | ');
+                        resultDetailEl.textContent = 'Matching routes for ' + terms.join(' and ') + '.';
                     }
                 }
 
@@ -2698,8 +2792,7 @@ class PHMapPlugin {
                     
                     if (activeButton) { 
                         activeButton.classList.remove('active'); 
-                        activeButton.style.backgroundColor = ''; 
-                        activeButton.style.borderColor = '';
+                        activeButton.style.removeProperty('--route-accent');
                         
                         // Reset direction buttons to starter state
                         var allDirectionBtns = activeButton.querySelectorAll('.phmap-direction-btn');
@@ -2711,7 +2804,7 @@ class PHMapPlugin {
                         activeButton = null; 
                     }
 
-                    updateMapStatus('Select a route to view it on the map.');
+                    updateMapStatus('Select a route option to preview it on the map.');
                     updateSelectedRouteSummary(null, 'both');
                     setSelectionState(false);
                 }
@@ -2720,8 +2813,7 @@ class PHMapPlugin {
                     clearCurrentPath();
                     activeButton = buttonEl;
                     buttonEl.classList.add('active');
-                    buttonEl.style.backgroundColor = config.color;
-                    buttonEl.style.borderColor = config.color;
+                    buttonEl.style.setProperty('--route-accent', config.color || '#1565C0');
 
                     console.log('showPath called with direction:', activeDirection);
                     console.log('Config:', config);
@@ -2732,7 +2824,7 @@ class PHMapPlugin {
                     } else if (activeDirection === 'outbound') {
                         directionSummary = config.outbound_label || 'Showing outbound direction.';
                     }
-                    updateMapStatus('Now showing: ' + (config.main_label || config.label), directionSummary);
+                    updateMapStatus('Previewing: ' + (config.main_label || config.label), directionSummary);
                     updateSelectedRouteSummary(config, activeDirection);
                     setSelectionState(true);
 
@@ -2811,7 +2903,7 @@ class PHMapPlugin {
 
                 function showAllRoutes() {
                     clearCurrentPath();
-                    updateMapStatus('Now showing all routes.', 'Tap a single route card to focus on one path.');
+                    updateMapStatus('Previewing all routes.', 'Tap a single route card to focus on one path.');
                     updateSelectedRouteSummary({
                         main_label: 'All available routes',
                         via: ''
@@ -3140,7 +3232,6 @@ class PHMapPlugin {
                             console.log('View All is not active, showing all routes');
                             clearCurrentPath();
                             this.classList.add('active');
-                            this.style.backgroundColor = '#007cba'; // WordPress blue
                             activeButton = this;
                             showAllRoutes();
                         }
