@@ -2455,9 +2455,110 @@ class PHMapPlugin {
                 color: var(--ph-text-light);
             }
 
+            @supports (padding: max(0px)) {
+                #<?php echo $id; ?> .phmap-bottom-sheet {
+                    left: max(16px, env(safe-area-inset-left));
+                    top: max(16px, env(safe-area-inset-top));
+                }
+            }
+
+            @media (min-width: 1400px) {
+                #<?php echo $id; ?> .phmap-bottom-sheet {
+                    width: min(500px, calc(100% - 48px));
+                    height: min(84vh, 820px);
+                }
+
+                #<?php echo $id; ?> .phmap-controls {
+                    gap: 10px;
+                }
+            }
+
+            @media (max-width: 1200px) and (min-width: 901px) {
+                #<?php echo $id; ?> .phmap-bottom-sheet {
+                    width: min(400px, calc(100% - 28px));
+                    left: 14px;
+                    top: 14px;
+                }
+
+                #<?php echo $id; ?> .phmap-sheet-title {
+                    font-size: 18px;
+                }
+            }
+
+            @media (max-height: 760px) {
+                #<?php echo $id; ?> .phmap-bottom-sheet {
+                    height: min(92vh, 640px);
+                }
+
+                #<?php echo $id; ?> .phmap-section {
+                    padding: 10px;
+                    margin-bottom: 8px;
+                }
+            }
+
+            @media (max-height: 620px) {
+                #<?php echo $id; ?> .phmap-sheet-subtitle {
+                    display: none;
+                }
+
+                #<?php echo $id; ?> .phmap-sheet-head {
+                    padding-bottom: 8px;
+                }
+
+                #<?php echo $id; ?> .phmap-btn {
+                    min-height: 82px;
+                    padding: 10px;
+                }
+
+                #<?php echo $id; ?> .phmap-btn-title {
+                    font-size: 15px;
+                }
+            }
+
             @media (max-width: 860px) {
                 #<?php echo $id; ?> .phmap-controls {
                     grid-template-columns: 1fr;
+                }
+            }
+
+            @media (max-width: 900px) and (min-width: 641px) {
+                #<?php echo $id; ?> .phmap-bottom-sheet {
+                    left: 10px;
+                    right: 10px;
+                    width: auto;
+                    top: auto;
+                    bottom: 10px;
+                    height: min(70%, 520px);
+                    max-height: calc(100% - 20px);
+                    padding: 10px;
+                }
+
+                #<?php echo $id; ?> .phmap-sheet-handle {
+                    position: static;
+                    width: 56px;
+                    height: 5px;
+                    border-radius: 999px;
+                    background: var(--ph-accent);
+                    margin: 2px auto 10px;
+                    box-shadow: none;
+                    display: block;
+                }
+
+                #<?php echo $id; ?> .phmap-sheet-handle::before {
+                    display: none;
+                }
+
+                #<?php echo $id; ?>.phmap-sheet-collapsed .phmap-bottom-sheet {
+                    transform: translateY(calc(100% - 72px));
+                }
+
+                #<?php echo $id; ?> .phmap-results-head {
+                    flex-direction: column;
+                    align-items: flex-start;
+                }
+
+                #<?php echo $id; ?> .phmap-action-chip {
+                    flex: 1 1 100%;
                 }
             }
 
@@ -2493,6 +2594,14 @@ class PHMapPlugin {
                     height: min(86%, 560px);
                     max-height: calc(100% - 16px);
                     padding: 10px;
+                }
+
+                @supports (padding: max(0px)) {
+                    #<?php echo $id; ?> .phmap-bottom-sheet {
+                        left: max(8px, env(safe-area-inset-left));
+                        right: max(8px, env(safe-area-inset-right));
+                        bottom: max(8px, env(safe-area-inset-bottom));
+                    }
                 }
 
                 #<?php echo $id; ?> .phmap-sheet-handle {
@@ -2535,6 +2644,30 @@ class PHMapPlugin {
                 #<?php echo $id; ?> .phmap-results-head {
                     flex-direction: column;
                     align-items: flex-start;
+                }
+            }
+
+            @media (max-width: 430px) {
+                #<?php echo $id; ?> .phmap-bottom-sheet {
+                    padding: 8px;
+                    height: min(90%, 560px);
+                }
+
+                #<?php echo $id; ?> .phmap-sheet-title {
+                    font-size: 16px;
+                }
+
+                #<?php echo $id; ?> .phmap-search-input {
+                    font-size: 15px;
+                    padding: 10px 12px;
+                }
+
+                #<?php echo $id; ?> .phmap-result-count,
+                #<?php echo $id; ?> .phmap-result-detail,
+                #<?php echo $id; ?> .phmap-help,
+                #<?php echo $id; ?> .phmap-map-status,
+                #<?php echo $id; ?> .phmap-selected-route-meta {
+                    font-size: 11px;
                 }
             }
         </style>
@@ -2913,7 +3046,7 @@ class PHMapPlugin {
             function init(){
                 if (!window.L || !L.map) return;
                 var cityCenter = [8.4542, 124.6319]; // Cagayan de Oro center
-                var map = L.map(mapEl, { zoomControl:true, attributionControl:true }).setView(cityCenter, <?php echo (int)$zoom; ?>);
+                var map = L.map(mapEl, { zoomControl:true, attributionControl:true, minZoom: 12, maxZoom: 19 }).setView(cityCenter, <?php echo (int)$zoom; ?>);
                 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                     maxZoom: 19,
                     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors'
@@ -2928,8 +3061,8 @@ class PHMapPlugin {
                     L.latLng(8.58, 124.78)
                 );
                 map.setView(cityCenter, <?php echo (int)$zoom; ?>);
-                map.setMaxBounds(cdoBounds.pad(0.35));
-                map.options.maxBoundsViscosity = 0.7;
+                map.setMaxBounds(cdoBounds);
+                map.options.maxBoundsViscosity = 1.0;
 
                 function clearCurrentPath(){
                     currentMarkers.forEach(function(m){ map.removeLayer(m); });
