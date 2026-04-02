@@ -1805,7 +1805,7 @@ class PHMapPlugin {
         global $wpdb;
         
         $atts = shortcode_atts([
-            'height' => '92vh',
+            'height' => '100vh',
             'zoom' => 12,
         ], $atts, 'ph_map');
 
@@ -1948,6 +1948,12 @@ class PHMapPlugin {
         ob_start();
         ?>
         <style>
+            html.phmap-page-lock,
+            body.phmap-page-lock {
+                height: 100%;
+                overflow: hidden;
+            }
+
             #<?php echo $id; ?> { 
                 --ph-accent: #1f7a8c;
                 --ph-border: #d8dde3;
@@ -1958,15 +1964,25 @@ class PHMapPlugin {
                 --ph-focus: #0e7490;
                 color: var(--ph-text);
                 font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                position: fixed;
+                inset: 0;
+                z-index: 9999;
+                display: block;
+                width: 100vw;
+                height: 100vh;
+                height: 100dvh;
+                max-width: 100vw;
+                margin: 0;
             }
 
             #<?php echo $id; ?> .phmap-shell {
                 position: relative;
                 border: 1px solid var(--ph-border);
-                border-radius: 16px;
+                border-radius: 0;
                 overflow: hidden;
-                height: <?php echo esc_attr($height); ?>;
-                min-height: 560px;
+                height: 100%;
+                min-height: 100vh;
+                min-height: 100dvh;
                 background: #dbe8f3;
             }
 
@@ -2322,7 +2338,8 @@ class PHMapPlugin {
 
             @media (max-width: 640px) {
                 #<?php echo $id; ?> .phmap-shell {
-                    min-height: 80vh;
+                    min-height: 100vh;
+                    min-height: 100dvh;
                 }
 
                 #<?php echo $id; ?> .phmap-btn {
@@ -2476,6 +2493,8 @@ class PHMapPlugin {
         <script>(function(){
             var root = document.getElementById('<?php echo $id; ?>');
             if (!root) return;
+            document.documentElement.classList.add('phmap-page-lock');
+            document.body.classList.add('phmap-page-lock');
             var mapEl = document.getElementById('<?php echo $mapId; ?>');
             var mapStatusEl = root.querySelector('.phmap-map-status');
             var resultCountEl = root.querySelector('.phmap-result-count');
