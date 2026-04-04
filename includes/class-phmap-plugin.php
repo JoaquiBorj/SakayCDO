@@ -29,6 +29,8 @@ class PHMapPlugin {
         add_action('admin_menu', [$this, 'add_admin_menu']);
         add_action('admin_post_ph_map_save_button', [$this, 'save_button']);
         add_action('admin_post_ph_map_delete_button', [$this, 'delete_button']);
+        add_action('admin_post_ph_map_export_routes', [$this, 'export_routes']);
+        add_action('admin_post_ph_map_import_routes', [$this, 'import_routes']);
         add_action('wp_ajax_ph_map_update_button_order', [$this, 'update_button_order']);
         add_shortcode('ph_map', [$this, 'render_shortcode']);
         add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_assets']);
@@ -669,6 +671,9 @@ class PHMapPlugin {
     private function render_list_page() {
         global $wpdb;
 
+        $message = isset($_GET['message']) ? sanitize_text_field(wp_unslash($_GET['message'])) : '';
+        $message_type = isset($_GET['message_type']) ? sanitize_key(wp_unslash($_GET['message_type'])) : 'success';
+
         $search_query = isset($_GET['s']) ? sanitize_text_field(wp_unslash($_GET['s'])) : '';
         $origin_filter = isset($_GET['origin']) ? sanitize_text_field(wp_unslash($_GET['origin'])) : '';
         $destination_filter = isset($_GET['destination']) ? sanitize_text_field(wp_unslash($_GET['destination'])) : '';
@@ -730,6 +735,8 @@ class PHMapPlugin {
         }
 
         echo $this->render_template('admin-list.php', [
+            'message' => $message,
+            'message_type' => in_array($message_type, ['success', 'warning', 'error'], true) ? $message_type : 'success',
             'search_query' => $search_query,
             'origin_filter' => $origin_filter,
             'destination_filter' => $destination_filter,
@@ -826,14 +833,28 @@ class PHMapPlugin {
         $selected_origin_name = $origin_place_id > 0 ? $this->get_place_name_by_id($origin_place_id) : '';
         $selected_destination_name = $destination_place_id > 0 ? $this->get_place_name_by_id($destination_place_id) : '';
 
-        $from_location = $this->normalize_place_name($origin_place_name_input !== '' ? $origin_place_name_input : $selected_origin_name);
-        $to_location = $this->normalize_place_name($destination_place_name_input !== '' ? $destination_place_name_input : $selected_destination_name);
+        $typed_origin_name = $this->normalize_place_name($origin_place_name_input);
+        $typed_destination_name = $this->normalize_place_name($destination_place_name_input);
 
-        if ($origin_place_id <= 0 && $from_location !== '') {
+        // If the user typed a place name, prefer it and rebind to that canonical place.
+        if ($typed_origin_name !== '') {
+            $from_location = $typed_origin_name;
             $origin_place_id = $this->upsert_place($from_location, 'origin');
+        } else {
+            $from_location = $this->normalize_place_name($selected_origin_name);
+            if ($origin_place_id <= 0 && $from_location !== '') {
+                $origin_place_id = $this->upsert_place($from_location, 'origin');
+            }
         }
-        if ($destination_place_id <= 0 && $to_location !== '') {
+
+        if ($typed_destination_name !== '') {
+            $to_location = $typed_destination_name;
             $destination_place_id = $this->upsert_place($to_location, 'destination');
+        } else {
+            $to_location = $this->normalize_place_name($selected_destination_name);
+            if ($destination_place_id <= 0 && $to_location !== '') {
+                $destination_place_id = $this->upsert_place($to_location, 'destination');
+            }
         }
 
         if ($origin_place_id > 0 && $from_location === '') {
@@ -1060,6 +1081,415 @@ class PHMapPlugin {
         }
         
         wp_send_json_success('Button order updated successfully');
+    }
+
+    public function export_routes() {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+
+        $nonce = isset($_GET['_wpnonce']) ? sanitize_text_field(wp_unslash($_GET['_wpnonce'])) : '';
+        if (!wp_verify_nonce($nonce, 'ph_map_export_routes')) {
+            wp_die('Unauthorized');
+        }
+
+        global $wpdb;
+
+        $routes = $wpdb->get_results(
+            "SELECT b.*, po.name AS origin_name, pd.name AS destination_name
+             FROM {$this->table_name} b
+             LEFT JOIN {$this->places_table} po ON po.id = b.origin_place_id
+             LEFT JOIN {$this->places_table} pd ON pd.id = b.destination_place_id
+             ORDER BY b.sort_order ASC, b.id ASC",
+            ARRAY_A
+        );
+
+        $export_payload = [
+            'exported_at' => current_time('mysql'),
+            'site_url' => home_url('/'),
+            'route_count' => count($routes),
+            'routes' => $routes,
+        ];
+
+        $filename = 'sakaycdo-routes-backup-' . gmdate('Y-m-d-His') . '.json';
+
+        nocache_headers();
+        header('Content-Type: application/json; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('X-Content-Type-Options: nosniff');
+
+        echo wp_json_encode($export_payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+
+    private function normalize_import_waypoints($waypoints) {
+        if (!is_array($waypoints)) {
+            return [];
+        }
+
+        $normalized = [];
+        foreach ($waypoints as $point) {
+            if (!is_array($point)) {
+                continue;
+            }
+
+            if (!isset($point['lat']) || !isset($point['lng'])) {
+                continue;
+            }
+
+            if (!is_numeric($point['lat']) || !is_numeric($point['lng'])) {
+                continue;
+            }
+
+            $normalized[] = [
+                'lat' => (float)$point['lat'],
+                'lng' => (float)$point['lng'],
+            ];
+        }
+
+        return $normalized;
+    }
+
+    private function import_geojson_coordinates_to_waypoints($coordinates) {
+        if (!is_array($coordinates)) {
+            return [];
+        }
+
+        $waypoints = [];
+        foreach ($coordinates as $coord) {
+            if (!is_array($coord) || count($coord) < 2) {
+                continue;
+            }
+
+            if (!is_numeric($coord[0]) || !is_numeric($coord[1])) {
+                continue;
+            }
+
+            $waypoints[] = [
+                'lat' => (float)$coord[1],
+                'lng' => (float)$coord[0],
+            ];
+        }
+
+        return $waypoints;
+    }
+
+    private function upsert_imported_route($route_data) {
+        global $wpdb;
+
+        $origin_name = $this->normalize_place_name(isset($route_data['from_location']) ? $route_data['from_location'] : '');
+        $destination_name = $this->normalize_place_name(isset($route_data['to_location']) ? $route_data['to_location'] : '');
+        $variant_code = $this->normalize_variant_code(isset($route_data['variant_code']) ? $route_data['variant_code'] : '');
+        $sub_label = $this->normalize_place_name(isset($route_data['sub_label']) ? $route_data['sub_label'] : '');
+
+        $canonical_label = $this->build_generated_route_label($origin_name, $destination_name, $variant_code, $sub_label);
+        if ($canonical_label === '') {
+            $canonical_label = sanitize_text_field(isset($route_data['label']) ? $route_data['label'] : '');
+        }
+
+        if ($canonical_label === '') {
+            return false;
+        }
+
+        $origin_place_id = $origin_name !== '' ? $this->upsert_place($origin_name, 'origin') : 0;
+        $destination_place_id = $destination_name !== '' ? $this->upsert_place($destination_name, 'destination') : 0;
+
+        $waypoints = $this->normalize_import_waypoints(isset($route_data['waypoints']) ? $route_data['waypoints'] : []);
+        $multiple_paths = isset($route_data['multiple_paths']) && is_array($route_data['multiple_paths']) ? $route_data['multiple_paths'] : [];
+        $normalized_multiple_paths = [];
+
+        foreach ($multiple_paths as $index => $path) {
+            if (!is_array($path)) {
+                continue;
+            }
+
+            $path_waypoints = $this->normalize_import_waypoints(isset($path['waypoints']) ? $path['waypoints'] : []);
+            if (count($path_waypoints) < 2) {
+                continue;
+            }
+
+            $normalized_multiple_paths[] = [
+                'id' => isset($path['id']) && $path['id'] !== '' ? sanitize_key($path['id']) : 'outbound_' . ($index + 1),
+                'label' => sanitize_text_field(isset($path['label']) ? $path['label'] : ('Outbound ' . ($index + 1))),
+                'color' => sanitize_hex_color(isset($path['color']) ? $path['color'] : '#3b82f6') ?: '#3b82f6',
+                'waypoints' => $path_waypoints,
+            ];
+        }
+
+        if (count($waypoints) < 2) {
+            return false;
+        }
+
+        $route_json = isset($route_data['route_data']) && is_array($route_data['route_data']) ? $route_data['route_data'] : $waypoints;
+        $is_loop = !empty($route_data['is_loop']) ? 1 : 0;
+        $direction = sanitize_text_field(isset($route_data['direction']) ? $route_data['direction'] : 'inbound');
+        if (!in_array($direction, ['inbound', 'outbound'], true)) {
+            $direction = 'inbound';
+        }
+
+        $route_type = sanitize_text_field(isset($route_data['route_type']) ? $route_data['route_type'] : 'transportation');
+        if (!in_array($route_type, ['transportation', 'personal'], true)) {
+            $route_type = 'transportation';
+        }
+
+        $db_data = [
+            'label' => $canonical_label,
+            'from_location' => $origin_name,
+            'to_location' => $destination_name,
+            'origin_place_id' => $origin_place_id ?: null,
+            'destination_place_id' => $destination_place_id ?: null,
+            'variant_code' => $variant_code,
+            'sub_label' => $sub_label,
+            'canonical_label' => $canonical_label,
+            'migration_notes' => '',
+            'description' => sanitize_textarea_field(isset($route_data['description']) ? $route_data['description'] : ''),
+            'waypoints' => wp_json_encode($waypoints),
+            'route_data' => wp_json_encode($route_json),
+            'multiple_paths' => wp_json_encode($normalized_multiple_paths),
+            'is_loop' => $is_loop,
+            'direction' => $direction,
+            'color' => sanitize_hex_color(isset($route_data['color']) ? $route_data['color'] : '#ff2f6d') ?: '#ff2f6d',
+            'route_type' => $route_type,
+            'updated_at' => current_time('mysql'),
+        ];
+
+        $existing_id = (int)$wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM {$this->table_name} WHERE canonical_label = %s OR label = %s LIMIT 1",
+            $canonical_label,
+            $canonical_label
+        ));
+
+        if ($existing_id > 0) {
+            $result = $wpdb->update($this->table_name, $db_data, ['id' => $existing_id]);
+            if ($result === false) {
+                return false;
+            }
+            $this->sync_route_waypoints_table($existing_id, $waypoints, $normalized_multiple_paths);
+            return 'updated';
+        }
+
+        $max_sort_order = (int)$wpdb->get_var("SELECT MAX(sort_order) FROM {$this->table_name}");
+        $db_data['sort_order'] = $max_sort_order + 1;
+
+        $result = $wpdb->insert($this->table_name, $db_data);
+        if ($result === false || !$wpdb->insert_id) {
+            return false;
+        }
+
+        $new_id = (int)$wpdb->insert_id;
+        $this->sync_route_waypoints_table($new_id, $waypoints, $normalized_multiple_paths);
+        return 'inserted';
+    }
+
+    private function map_backup_route_for_import($route) {
+        $waypoints_raw = isset($route['waypoints']) ? $route['waypoints'] : [];
+        if (is_string($waypoints_raw)) {
+            $decoded_waypoints = json_decode($waypoints_raw, true);
+            $waypoints_raw = is_array($decoded_waypoints) ? $decoded_waypoints : [];
+        }
+
+        $route_data_raw = isset($route['route_data']) ? $route['route_data'] : [];
+        if (is_string($route_data_raw)) {
+            $decoded_route_data = json_decode($route_data_raw, true);
+            $route_data_raw = is_array($decoded_route_data) ? $decoded_route_data : [];
+        }
+
+        $multiple_paths_raw = isset($route['multiple_paths']) ? $route['multiple_paths'] : [];
+        if (is_string($multiple_paths_raw)) {
+            $decoded_multiple_paths = json_decode($multiple_paths_raw, true);
+            $multiple_paths_raw = is_array($decoded_multiple_paths) ? $decoded_multiple_paths : [];
+        }
+
+        return [
+            'label' => isset($route['canonical_label']) && $route['canonical_label'] !== '' ? $route['canonical_label'] : (isset($route['label']) ? $route['label'] : ''),
+            'from_location' => isset($route['origin_name']) && $route['origin_name'] !== '' ? $route['origin_name'] : (isset($route['from_location']) ? $route['from_location'] : ''),
+            'to_location' => isset($route['destination_name']) && $route['destination_name'] !== '' ? $route['destination_name'] : (isset($route['to_location']) ? $route['to_location'] : ''),
+            'variant_code' => isset($route['variant_code']) ? $route['variant_code'] : '',
+            'sub_label' => isset($route['sub_label']) ? $route['sub_label'] : '',
+            'description' => isset($route['description']) ? $route['description'] : '',
+            'waypoints' => $waypoints_raw,
+            'route_data' => $route_data_raw,
+            'multiple_paths' => $multiple_paths_raw,
+            'is_loop' => !empty($route['is_loop']),
+            'direction' => isset($route['direction']) ? $route['direction'] : 'inbound',
+            'color' => isset($route['color']) ? $route['color'] : '#ff2f6d',
+            'route_type' => isset($route['route_type']) ? $route['route_type'] : 'transportation',
+        ];
+    }
+
+    private function map_geojson_feature_for_import($feature, $fallback_index) {
+        if (!is_array($feature) || !isset($feature['geometry']) || !is_array($feature['geometry'])) {
+            return null;
+        }
+
+        $geometry = $feature['geometry'];
+        $properties = isset($feature['properties']) && is_array($feature['properties']) ? $feature['properties'] : [];
+        $type = isset($geometry['type']) ? $geometry['type'] : '';
+        $coordinates = isset($geometry['coordinates']) ? $geometry['coordinates'] : [];
+
+        $inbound_waypoints = [];
+        $multiple_paths = [];
+
+        if ($type === 'LineString') {
+            $inbound_waypoints = $this->import_geojson_coordinates_to_waypoints($coordinates);
+        } elseif ($type === 'MultiLineString') {
+            if (is_array($coordinates) && isset($coordinates[0])) {
+                $inbound_waypoints = $this->import_geojson_coordinates_to_waypoints($coordinates[0]);
+                foreach (array_slice($coordinates, 1) as $path_index => $path_coords) {
+                    $path_waypoints = $this->import_geojson_coordinates_to_waypoints($path_coords);
+                    if (count($path_waypoints) < 2) {
+                        continue;
+                    }
+
+                    $multiple_paths[] = [
+                        'id' => 'outbound_' . ($path_index + 1),
+                        'label' => 'Outbound ' . ($path_index + 1),
+                        'color' => '#3b82f6',
+                        'waypoints' => $path_waypoints,
+                    ];
+                }
+            }
+        } else {
+            return null;
+        }
+
+        if (count($inbound_waypoints) < 2) {
+            return null;
+        }
+
+        $label = '';
+        foreach (['label', 'name', 'route_name'] as $label_key) {
+            if (!empty($properties[$label_key]) && is_string($properties[$label_key])) {
+                $label = sanitize_text_field($properties[$label_key]);
+                break;
+            }
+        }
+
+        $from_location = '';
+        foreach (['from', 'origin', 'start'] as $from_key) {
+            if (!empty($properties[$from_key]) && is_string($properties[$from_key])) {
+                $from_location = sanitize_text_field($properties[$from_key]);
+                break;
+            }
+        }
+
+        $to_location = '';
+        foreach (['to', 'destination', 'end'] as $to_key) {
+            if (!empty($properties[$to_key]) && is_string($properties[$to_key])) {
+                $to_location = sanitize_text_field($properties[$to_key]);
+                break;
+            }
+        }
+
+        if (($from_location === '' || $to_location === '') && $label !== '') {
+            $parsed = $this->parse_legacy_route_label($label);
+            if ($from_location === '') {
+                $from_location = $parsed['origin_name'];
+            }
+            if ($to_location === '') {
+                $to_location = $parsed['destination_name'];
+            }
+        }
+
+        if ($label === '') {
+            $label = 'Imported Route ' . $fallback_index;
+        }
+
+        return [
+            'label' => $label,
+            'from_location' => $from_location,
+            'to_location' => $to_location,
+            'variant_code' => isset($properties['variant_code']) ? sanitize_text_field($properties['variant_code']) : '',
+            'sub_label' => isset($properties['sub_label']) ? sanitize_text_field($properties['sub_label']) : '',
+            'description' => isset($properties['description']) ? sanitize_textarea_field($properties['description']) : '',
+            'waypoints' => $inbound_waypoints,
+            'route_data' => $inbound_waypoints,
+            'multiple_paths' => $multiple_paths,
+            'is_loop' => !empty($properties['is_loop']),
+            'direction' => 'inbound',
+            'color' => isset($properties['color']) ? sanitize_hex_color($properties['color']) : '#ff2f6d',
+            'route_type' => isset($properties['route_type']) ? sanitize_text_field($properties['route_type']) : 'transportation',
+        ];
+    }
+
+    public function import_routes() {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+
+        $nonce = isset($_POST['ph_map_import_nonce']) ? sanitize_text_field(wp_unslash($_POST['ph_map_import_nonce'])) : '';
+        if (!wp_verify_nonce($nonce, 'ph_map_import_routes')) {
+            wp_die('Unauthorized');
+        }
+
+        if (!isset($_FILES['routes_file']) || !is_array($_FILES['routes_file'])) {
+            wp_redirect(admin_url('admin.php?page=ph-map-buttons&message=' . urlencode('No file uploaded.') . '&message_type=error'));
+            exit;
+        }
+
+        $uploaded_file = $_FILES['routes_file'];
+        if (!isset($uploaded_file['tmp_name']) || !is_uploaded_file($uploaded_file['tmp_name'])) {
+            wp_redirect(admin_url('admin.php?page=ph-map-buttons&message=' . urlencode('Upload failed. Please try again.') . '&message_type=error'));
+            exit;
+        }
+
+        $raw_contents = file_get_contents($uploaded_file['tmp_name']);
+        if ($raw_contents === false || trim($raw_contents) === '') {
+            wp_redirect(admin_url('admin.php?page=ph-map-buttons&message=' . urlencode('Uploaded file is empty.') . '&message_type=error'));
+            exit;
+        }
+
+        $payload = json_decode($raw_contents, true);
+        if (!is_array($payload)) {
+            wp_redirect(admin_url('admin.php?page=ph-map-buttons&message=' . urlencode('Invalid JSON file.') . '&message_type=error'));
+            exit;
+        }
+
+        $routes_to_import = [];
+
+        if (isset($payload['routes']) && is_array($payload['routes'])) {
+            foreach ($payload['routes'] as $index => $route) {
+                if (!is_array($route)) {
+                    continue;
+                }
+                $routes_to_import[] = $this->map_backup_route_for_import($route);
+            }
+        } elseif (isset($payload['type']) && $payload['type'] === 'FeatureCollection' && isset($payload['features']) && is_array($payload['features'])) {
+            foreach ($payload['features'] as $index => $feature) {
+                $mapped = $this->map_geojson_feature_for_import($feature, $index + 1);
+                if ($mapped !== null) {
+                    $routes_to_import[] = $mapped;
+                }
+            }
+        } else {
+            wp_redirect(admin_url('admin.php?page=ph-map-buttons&message=' . urlencode('Unsupported file format. Use plugin backup JSON or GeoJSON FeatureCollection.') . '&message_type=error'));
+            exit;
+        }
+
+        if (empty($routes_to_import)) {
+            wp_redirect(admin_url('admin.php?page=ph-map-buttons&message=' . urlencode('No valid routes found in uploaded file.') . '&message_type=warning'));
+            exit;
+        }
+
+        $inserted = 0;
+        $updated = 0;
+        $failed = 0;
+
+        foreach ($routes_to_import as $route) {
+            $result = $this->upsert_imported_route($route);
+            if ($result === 'inserted') {
+                $inserted++;
+            } elseif ($result === 'updated') {
+                $updated++;
+            } else {
+                $failed++;
+            }
+        }
+
+        $summary = sprintf('Import completed. Inserted: %d, Updated: %d, Skipped: %d.', $inserted, $updated, $failed);
+        $summary_type = $failed > 0 ? 'warning' : 'success';
+        wp_redirect(admin_url('admin.php?page=ph-map-buttons&message=' . urlencode($summary) . '&message_type=' . $summary_type));
+        exit;
     }
 
     public function render_shortcode($atts = []) {

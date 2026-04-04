@@ -1,6 +1,28 @@
 
         <div class="wrap <?php echo $has_filters ? 'phmap-filters-active' : ''; ?>" id="phmap-admin-list" data-filters-active="<?php echo $has_filters ? '1' : '0'; ?>" data-reorder-nonce="<?php echo esc_attr(wp_create_nonce('ph_map_reorder')); ?>">
-            <h1>PH Map Path Buttons <a href="<?php echo admin_url('admin.php?page=ph-map-buttons&action=add'); ?>" class="page-title-action">Add New</a></h1>
+            <?php $export_url = wp_nonce_url(admin_url('admin-post.php?action=ph_map_export_routes'), 'ph_map_export_routes'); ?>
+            <h1>
+                PH Map Path Buttons
+                <a href="<?php echo admin_url('admin.php?page=ph-map-buttons&action=add'); ?>" class="page-title-action">Add New</a>
+                <a href="<?php echo esc_url($export_url); ?>" class="page-title-action">Download Routes Backup</a>
+            </h1>
+
+            <?php if (!empty($message)): ?>
+                <div class="notice <?php echo $message_type === 'error' ? 'notice-error' : ($message_type === 'warning' ? 'notice-warning' : 'notice-success'); ?> is-dismissible">
+                    <p><?php echo esc_html($message); ?></p>
+                </div>
+            <?php endif; ?>
+
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" enctype="multipart/form-data" style="margin: 12px 0 16px; padding: 12px; background: #fff; border: 1px solid #dcdcde; border-radius: 6px;">
+                <input type="hidden" name="action" value="ph_map_import_routes">
+                <?php wp_nonce_field('ph_map_import_routes', 'ph_map_import_nonce'); ?>
+                <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
+                    <label for="routes_file"><strong>Import Routes:</strong></label>
+                    <input type="file" name="routes_file" id="routes_file" accept=".json,.geojson,application/json" required>
+                    <button type="submit" class="button button-secondary">Upload and Import</button>
+                </div>
+                <p class="description" style="margin: 8px 0 0;">Supports plugin backup JSON and GeoJSON FeatureCollection (LineString or MultiLineString), compatible with Leaflet/OpenStreetMap workflows.</p>
+            </form>
 
             <form method="get" style="margin: 12px 0 16px; padding: 12px; background: #fff; border: 1px solid #dcdcde; border-radius: 6px;">
                 <input type="hidden" name="page" value="ph-map-buttons">
