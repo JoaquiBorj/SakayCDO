@@ -159,6 +159,34 @@
                 return routeId + '|' + activeDirection;
             }
 
+            function getStoredRoadNames(config, activeDirection) {
+                if (!config || !config.road_names || typeof config.road_names !== 'object') {
+                    return [];
+                }
+
+                var source = [];
+                if (activeDirection === 'inbound' && Array.isArray(config.road_names.inbound)) {
+                    source = config.road_names.inbound;
+                } else if (activeDirection === 'outbound' && Array.isArray(config.road_names.outbound)) {
+                    source = config.road_names.outbound;
+                } else if (Array.isArray(config.road_names.both)) {
+                    source = config.road_names.both;
+                }
+
+                var seen = {};
+                var unique = [];
+                source.forEach(function(name) {
+                    var normalized = normalizeRoadName(name);
+                    if (!normalized) return;
+                    var key = normalized.toLowerCase();
+                    if (seen[key]) return;
+                    seen[key] = true;
+                    unique.push(normalized);
+                });
+
+                return unique;
+            }
+
             function withTimeout(promise, timeoutMs, fallbackValue) {
                 return new Promise(function(resolve) {
                     var settled = false;
@@ -354,6 +382,12 @@
 
             function refreshRoadList(config, activeDirection, buttonEl) {
                 if (!buttonEl || !config) {
+                    return;
+                }
+
+                var storedRoads = getStoredRoadNames(config, activeDirection);
+                if (storedRoads.length > 0) {
+                    setButtonRoadListText(buttonEl, storedRoads.join(' -> '), false, true);
                     return;
                 }
 

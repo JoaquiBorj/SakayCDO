@@ -115,7 +115,8 @@ class PHMapPlugin {
             description text NULL,
             waypoints longtext NOT NULL,
             route_data longtext NOT NULL,
-            is_loop tinyint(1) NOT NULL DEFAULT 0,
+                is_loop tinyint(1) NOT NULL DEFAULT 0,
+                road_names longtext NULL,
             direction varchar(20) NOT NULL DEFAULT 'inbound',
             color varchar(7) NOT NULL DEFAULT '#e58f9f',
             route_type varchar(20) NOT NULL DEFAULT 'transportation',
@@ -194,6 +195,7 @@ class PHMapPlugin {
             'waypoints',
             'route_data',
             'is_loop',
+                'road_names',
             'direction',
             'color',
             'route_type',
@@ -208,6 +210,8 @@ class PHMapPlugin {
             error_log('Missing columns in table ' . $this->table_name . ': ' . implode(', ', $missing_columns));
             $this->update_table_schema($missing_columns);
         }
+
+        $this->backfill_missing_road_names(5);
 
         // Backfill normalized columns and waypoint relationships once per schema version.
         if ((int)get_option($this->schema_version_option, 0) < 1) {
@@ -281,6 +285,9 @@ class PHMapPlugin {
                 case 'label':
                     $sql = "ALTER TABLE {$this->table_name} ADD COLUMN label VARCHAR(255) NOT NULL";
                     break;
+                    case 'road_names':
+                        $sql = "ALTER TABLE {$this->table_name} ADD COLUMN road_names LONGTEXT NULL";
+                        break;
                 default:
                     continue 2; // Skip unknown columns
             }
@@ -298,6 +305,49 @@ class PHMapPlugin {
                     $wpdb->query("UPDATE {$this->table_name} SET route_type = 'transportation' WHERE route_type = ''");
                 }
             }
+        }
+    }
+
+    private function backfill_missing_road_names($limit = 5) {
+        global $wpdb;
+
+        $limit = max(1, (int)$limit);
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT id, waypoints, multiple_paths FROM {$this->table_name} WHERE road_names IS NULL OR road_names = '' LIMIT %d",
+            $limit
+        ));
+
+        if (!is_array($rows) || empty($rows)) {
+            return;
+        }
+
+        foreach ($rows as $row) {
+            $waypoints = json_decode((string)$row->waypoints, true);
+            if (!is_array($waypoints)) {
+                $waypoints = [];
+            }
+
+            $multiple_paths = json_decode((string)$row->multiple_paths, true);
+            if (!is_array($multiple_paths)) {
+                $multiple_paths = [];
+            }
+
+            $payload = $this->build_stored_road_names($waypoints, $multiple_paths);
+            $encoded = wp_json_encode($payload);
+            if (!is_string($encoded) || $encoded === '') {
+                continue;
+            }
+
+            $wpdb->update(
+                $this->table_name,
+                [
+                    'road_names' => $encoded,
+                    'updated_at' => current_time('mysql'),
+                ],
+                ['id' => (int)$row->id],
+                ['%s', '%s'],
+                ['%d']
+            );
         }
     }
 
@@ -570,6 +620,126 @@ class PHMapPlugin {
                 $insert_waypoints($path['waypoints'], 'outbound', $path_group);
             }
         }
+    }
+
+    private function extract_road_names_from_waypoints($waypoints) {
+        if (!is_array($waypoints) || count($waypoints) < 2) {
+            return [];
+        }
+
+        $coords = [];
+        foreach ($waypoints as $point) {
+            if (!is_array($point) || !isset($point['lat']) || !isset($point['lng'])) {
+                continue;
+            }
+
+            if (!is_numeric($point['lat']) || !is_numeric($point['lng'])) {
+                continue;
+            }
+
+            $coords[] = ((float)$point['lng']) . ',' . ((float)$point['lat']);
+        }
+
+        if (count($coords) < 2) {
+            return [];
+        }
+
+        $url = 'https://router.project-osrm.org/route/v1/driving/' . implode(';', $coords);
+        $url = add_query_arg([
+            'overview' => 'false',
+            'steps' => 'true',
+        ], $url);
+
+        $response = wp_remote_get($url, [
+            'timeout' => 8,
+            'headers' => [
+                'Accept' => 'application/json',
+                'User-Agent' => 'SakayCDO-Plugin/1.0 (' . home_url('/') . ')',
+            ],
+        ]);
+
+        if (is_wp_error($response) || (int)wp_remote_retrieve_response_code($response) !== 200) {
+            return [];
+        }
+
+        $payload = json_decode((string)wp_remote_retrieve_body($response), true);
+        if (!is_array($payload) || !isset($payload['routes'][0]['legs']) || !is_array($payload['routes'][0]['legs'])) {
+            return [];
+        }
+
+        $names = [];
+        $seen = [];
+
+        foreach ($payload['routes'][0]['legs'] as $leg) {
+            if (!is_array($leg) || !isset($leg['steps']) || !is_array($leg['steps'])) {
+                continue;
+            }
+
+            foreach ($leg['steps'] as $step) {
+                $name = '';
+                if (is_array($step) && isset($step['name']) && is_string($step['name'])) {
+                    $name = trim(preg_replace('/\s+/', ' ', $step['name']));
+                }
+
+                if ($name === '' || preg_match('/^unnamed road$/i', $name)) {
+                    continue;
+                }
+
+                $key = strtolower($name);
+                if (isset($seen[$key])) {
+                    continue;
+                }
+
+                $seen[$key] = true;
+                $names[] = $name;
+            }
+        }
+
+        return $names;
+    }
+
+    private function build_stored_road_names($inbound_waypoints, $multiple_paths) {
+        $inbound = $this->extract_road_names_from_waypoints($inbound_waypoints);
+
+        $outbound = [];
+        $seen_outbound = [];
+
+        if (is_array($multiple_paths)) {
+            foreach ($multiple_paths as $path) {
+                if (!is_array($path) || !isset($path['waypoints']) || !is_array($path['waypoints'])) {
+                    continue;
+                }
+
+                $path_names = $this->extract_road_names_from_waypoints($path['waypoints']);
+                foreach ($path_names as $name) {
+                    $key = strtolower($name);
+                    if (isset($seen_outbound[$key])) {
+                        continue;
+                    }
+
+                    $seen_outbound[$key] = true;
+                    $outbound[] = $name;
+                }
+            }
+        }
+
+        $both = [];
+        $seen_both = [];
+        foreach (array_merge($inbound, $outbound) as $name) {
+            $key = strtolower($name);
+            if (isset($seen_both[$key])) {
+                continue;
+            }
+
+            $seen_both[$key] = true;
+            $both[] = $name;
+        }
+
+        return [
+            'inbound' => $inbound,
+            'outbound' => $outbound,
+            'both' => $both,
+        ];
     }
 
     private function migrate_existing_routes_to_normalized_schema() {
@@ -976,6 +1146,13 @@ class PHMapPlugin {
             error_log('Route data too large, clearing it');
             $route_data = '[]';
         }
+
+        $decoded_multiple_paths = json_decode($multiple_paths, true);
+        if (!is_array($decoded_multiple_paths)) {
+            $decoded_multiple_paths = [];
+        }
+
+        $road_names_payload = $this->build_stored_road_names($waypoint_array, $decoded_multiple_paths);
         
         // Verify table structure one more time before insert/update
         $columns = $wpdb->get_results("SHOW COLUMNS FROM {$this->table_name}");
@@ -996,6 +1173,7 @@ class PHMapPlugin {
             'waypoints' => $waypoints,
             'route_data' => $route_data,
             'multiple_paths' => $multiple_paths,
+            'road_names' => wp_json_encode($road_names_payload),
             'is_loop' => $is_loop,
             'direction' => $direction,
             'color' => $color,
@@ -1042,10 +1220,6 @@ class PHMapPlugin {
             $button_id = (int)$wpdb->insert_id;
         }
 
-        $decoded_multiple_paths = json_decode($multiple_paths, true);
-        if (!is_array($decoded_multiple_paths)) {
-            $decoded_multiple_paths = [];
-        }
         $this->sync_route_waypoints_table($button_id, $waypoint_array, $decoded_multiple_paths);
         
         error_log('Database operation successful. Result: ' . $result);
@@ -1354,6 +1528,7 @@ class PHMapPlugin {
             'waypoints' => wp_json_encode($waypoints),
             'route_data' => wp_json_encode($route_json),
             'multiple_paths' => wp_json_encode($normalized_multiple_paths),
+            'road_names' => wp_json_encode($this->build_stored_road_names($waypoints, $normalized_multiple_paths)),
             'is_loop' => $is_loop,
             'direction' => $direction,
             'color' => sanitize_hex_color(isset($route_data['color']) ? $route_data['color'] : '#e58f9f') ?: '#e58f9f',
@@ -1696,6 +1871,11 @@ class PHMapPlugin {
                 $multiple_paths = [];
             }
 
+            $road_names = isset($btn->road_names) ? json_decode($btn->road_names, true) : [];
+            if (!is_array($road_names)) {
+                $road_names = [];
+            }
+
             $has_inbound = count($waypoints) >= 2;
             $has_outbound = false;
 
@@ -1723,6 +1903,7 @@ class PHMapPlugin {
                 'color' => isset($btn->color) ? $btn->color : '#e58f9f',
                 'route_type' => isset($btn->route_type) ? $btn->route_type : 'transportation',
                 'multiple_paths' => $multiple_paths,
+                'road_names' => $road_names,
                 'variant_code' => isset($btn->variant_code) ? $btn->variant_code : '',
                 'sub_label' => isset($btn->sub_label) ? $btn->sub_label : '',
                 'has_inbound' => $has_inbound,
