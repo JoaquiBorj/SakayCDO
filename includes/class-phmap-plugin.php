@@ -1605,6 +1605,7 @@ class PHMapPlugin {
             $meta = $build_route_meta($display_label, $description, $origin_name, $destination_name);
 
             return [
+                'id' => isset($btn->id) ? (int)$btn->id : 0,
                 'label' => $display_label,
                 'description' => $description,
                 'waypoints' => $waypoints,
