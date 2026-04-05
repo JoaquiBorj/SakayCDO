@@ -382,36 +382,6 @@ html.phmap-page-lock,
                 margin-top: 10px;
             }
 
-            .phmap .phmap-btn-road-summary {
-                display: none;
-                margin-top: 10px;
-                border-top: 1px dashed #d9dee4;
-                padding-top: 8px;
-            }
-
-            .phmap .phmap-btn.active.has-road-summary .phmap-btn-road-summary {
-                display: block;
-            }
-
-            .phmap .phmap-btn-road-title {
-                font-size: 10px;
-                font-weight: 700;
-                letter-spacing: 0.06em;
-                text-transform: uppercase;
-                color: #495057;
-                margin-bottom: 4px;
-            }
-
-            .phmap .phmap-btn-road-list {
-                font-size: 12px;
-                line-height: 1.5;
-                color: #212529;
-            }
-
-            .phmap .phmap-btn-road-list.is-muted {
-                color: var(--ph-text-light);
-            }
-
             .phmap .phmap-direction-btn {
                 background: #f8f9fa;
                 border: 1px solid #dfe3e8;
@@ -499,10 +469,6 @@ html.phmap-page-lock,
                 background: #fefefe;
             }
 
-            .phmap.phmap-no-selection .phmap-selection-section {
-                display: none;
-            }
-
             .phmap .phmap-selected-summary {
                 background: #fffef8;
                 border: 1px solid #f1e3b5;
@@ -522,33 +488,6 @@ html.phmap-page-lock,
                 font-size: 12px;
                 color: var(--ph-text-light);
                 line-height: 1.6;
-            }
-
-            .phmap .phmap-road-summary {
-                margin-top: 8px;
-                background: #ffffff;
-                border: 1px solid var(--ph-border);
-                border-radius: var(--ph-radius);
-                padding: 10px 12px;
-            }
-
-            .phmap .phmap-road-title {
-                font-size: 11px;
-                font-weight: 700;
-                text-transform: uppercase;
-                letter-spacing: 0.06em;
-                color: #334155;
-                margin-bottom: 6px;
-            }
-
-            .phmap .phmap-road-list {
-                font-size: 12px;
-                line-height: 1.55;
-                color: var(--ph-text);
-            }
-
-            .phmap .phmap-road-list.is-muted {
-                color: var(--ph-text-light);
             }
 
             .phmap .phmap-map { 

@@ -21,20 +21,7 @@ class PHMapPlugin {
         $plugin_file = $plugin_file !== '' ? $plugin_file : __FILE__;
         $this->plugin_dir = plugin_dir_path($plugin_file);
         $this->plugin_url = plugin_dir_url($plugin_file);
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            $this->assets_version = (string)time();
-        } else {
-            $asset_files = [
-                $this->plugin_dir . 'assets/css/frontend.css',
-                $this->plugin_dir . 'assets/js/frontend-map.js',
-                $this->plugin_dir . 'assets/css/admin.css',
-                $this->plugin_dir . 'assets/js/admin-map.js',
-            ];
-            $asset_versions = array_filter(array_map(function($file) {
-                return file_exists($file) ? filemtime($file) : 0;
-            }, $asset_files));
-            $this->assets_version = !empty($asset_versions) ? (string)max($asset_versions) : '1.0.0';
-        }
+        $this->assets_version = defined('WP_DEBUG') && WP_DEBUG ? (string)time() : '1.0.0';
         
         register_activation_hook($plugin_file, [$this, 'activate']);
         register_deactivation_hook($plugin_file, [$this, 'deactivate']);
@@ -45,8 +32,6 @@ class PHMapPlugin {
         add_action('admin_post_ph_map_export_routes', [$this, 'export_routes']);
         add_action('admin_post_ph_map_import_routes', [$this, 'import_routes']);
         add_action('wp_ajax_ph_map_update_button_order', [$this, 'update_button_order']);
-        add_action('wp_ajax_ph_map_lookup_roads', [$this, 'ajax_lookup_roads']);
-        add_action('wp_ajax_nopriv_ph_map_lookup_roads', [$this, 'ajax_lookup_roads']);
         add_shortcode('ph_map', [$this, 'render_shortcode']);
         add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_assets']);
         add_action('wp_enqueue_scripts', [$this, 'enqueue_frontend_assets']);
@@ -78,10 +63,6 @@ class PHMapPlugin {
 
         wp_enqueue_style('phmap-frontend', $this->plugin_url . 'assets/css/frontend.css', [], $this->assets_version);
         wp_enqueue_script('phmap-frontend-map', $this->plugin_url . 'assets/js/frontend-map.js', ['phmap-leaflet'], $this->assets_version, true);
-        wp_localize_script('phmap-frontend-map', 'PHMapFrontend', [
-            'ajaxUrl' => admin_url('admin-ajax.php'),
-            'nonce' => wp_create_nonce('ph_map_frontend_road_lookup'),
-        ]);
     }
 
     private function current_request_has_map_shortcode() {
@@ -1100,95 +1081,6 @@ class PHMapPlugin {
         }
         
         wp_send_json_success('Button order updated successfully');
-    }
-
-    public function ajax_lookup_roads() {
-        $nonce = isset($_POST['nonce']) ? sanitize_text_field(wp_unslash($_POST['nonce'])) : '';
-        if ($nonce !== '' && !wp_verify_nonce($nonce, 'ph_map_frontend_road_lookup')) {
-            wp_send_json_error(['message' => 'Invalid request token.'], 403);
-        }
-
-        $raw_coords = isset($_POST['coords']) ? wp_unslash($_POST['coords']) : '[]';
-        if (is_string($raw_coords)) {
-            $decoded = json_decode($raw_coords, true);
-            $coords = is_array($decoded) ? $decoded : [];
-        } else {
-            $coords = is_array($raw_coords) ? $raw_coords : [];
-        }
-
-        if (empty($coords)) {
-            wp_send_json_success(['roads' => []]);
-        }
-
-        $coords = array_slice($coords, 0, 12);
-        $roads = [];
-        $seen = [];
-
-        foreach ($coords as $coord) {
-            if (!is_array($coord) || count($coord) < 2) {
-                continue;
-            }
-
-            $lat = isset($coord[0]) ? (float)$coord[0] : null;
-            $lng = isset($coord[1]) ? (float)$coord[1] : null;
-            if (!is_finite($lat) || !is_finite($lng)) {
-                continue;
-            }
-
-            $cache_key = 'ph_map_road_' . md5(round($lat, 5) . ',' . round($lng, 5));
-            $road_name = get_transient($cache_key);
-
-            if ($road_name === false) {
-                $url = add_query_arg([
-                    'format' => 'jsonv2',
-                    'zoom' => 17,
-                    'addressdetails' => 1,
-                    'lat' => $lat,
-                    'lon' => $lng,
-                ], 'https://nominatim.openstreetmap.org/reverse');
-
-                $response = wp_remote_get($url, [
-                    'timeout' => 8,
-                    'headers' => [
-                        'Accept' => 'application/json',
-                        'User-Agent' => 'SakayCDO-Plugin/1.0 (' . home_url('/') . ')',
-                    ],
-                ]);
-
-                $road_name = '';
-                if (!is_wp_error($response) && (int)wp_remote_retrieve_response_code($response) === 200) {
-                    $body = json_decode((string)wp_remote_retrieve_body($response), true);
-                    $address = isset($body['address']) && is_array($body['address']) ? $body['address'] : [];
-                    $road_name = '';
-                    foreach (['road', 'pedestrian', 'residential', 'suburb'] as $field) {
-                        if (!empty($address[$field])) {
-                            $road_name = (string)$address[$field];
-                            break;
-                        }
-                    }
-                    if ($road_name === '' && !empty($body['name'])) {
-                        $road_name = (string)$body['name'];
-                    }
-                }
-
-                $road_name = trim(preg_replace('/\s+/', ' ', (string)$road_name));
-                set_transient($cache_key, $road_name, HOUR_IN_SECONDS * 12);
-            }
-
-            if ($road_name === '') {
-                continue;
-            }
-
-            $road_key = strtolower($road_name);
-            if (isset($seen[$road_key])) {
-                continue;
-            }
-
-            $seen[$road_key] = true;
-            $roads[] = $road_name;
-        }
-
-        wp_send_json_success(['roads' => $roads]);
     }
 
     public function export_routes() {

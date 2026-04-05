@@ -112,10 +112,6 @@
                                     <?php endif; ?>
                                 </div>
                             <?php endif; ?>
-                            <div class="phmap-btn-road-summary" aria-live="polite">
-                                <div class="phmap-btn-road-title">Roads passed</div>
-                                <div class="phmap-btn-road-list is-muted">Will load when this route is selected.</div>
-                            </div>
                         </div>
                     </button>
                 <?php endforeach; ?>
@@ -135,12 +131,6 @@
                 </div>
             </div>
             <script type="application/json" class="phmap-config-data"><?php echo wp_json_encode($button_view_data, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?></script>
-            <script>
-                window.PHMapFrontend = window.PHMapFrontend || {
-                    ajaxUrl: <?php echo wp_json_encode(admin_url('admin-ajax.php')); ?>,
-                    nonce: <?php echo wp_json_encode(wp_create_nonce('ph_map_frontend_road_lookup')); ?>
-                };
-            </script>
         </div>
 
 <?php if (!wp_script_is('phmap-leaflet', 'done') && !wp_script_is('phmap-leaflet', 'enqueued')): ?>

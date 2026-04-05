@@ -16,11 +16,6 @@
             var sheetHandleEl = root.querySelector('.phmap-sheet-handle');
             var suppressAutoPreview = false;
             var lastQuerySignature = '';
-            var roadLookupRequestId = 0;
-            var frontendConfig = window.PHMapFrontend || {};
-            var roadListCache = {};
-            var defaultRoadPrompt = 'Will load when this route is selected.';
-            var activeButton = null;
 
             var configEl = root.querySelector('.phmap-config-data');
             var buttonConfigs = [];
@@ -66,317 +61,6 @@
                 }
 
                 selectedRouteMetaEl.textContent = metaParts.join(' | ');
-            }
-
-            function setButtonRoadListText(buttonEl, text, isMuted, isVisible) {
-                if (!buttonEl) return;
-                var roadList = buttonEl.querySelector('.phmap-btn-road-list');
-                if (!roadList) return;
-                roadList.textContent = text;
-                roadList.classList.toggle('is-muted', !!isMuted);
-                buttonEl.classList.toggle('has-road-summary', !!isVisible);
-            }
-
-            function resetButtonRoadLists() {
-                var routeButtons = root.querySelectorAll('.phmap-path-btn');
-                routeButtons.forEach(function(btn) {
-                    setButtonRoadListText(btn, defaultRoadPrompt, true, false);
-                });
-            }
-
-            function normalizeRoadName(value) {
-                var name = (value || '').trim();
-                if (!name) return '';
-                return name.replace(/\s+/g, ' ');
-            }
-
-            function buildPathCoordinates(path) {
-                if (!path) return [];
-
-                if (path.route && Array.isArray(path.route) && path.route.length > 0) {
-                    return path.route.filter(function(coord) {
-                        return Array.isArray(coord) && coord.length >= 2 && isFinite(coord[0]) && isFinite(coord[1]);
-                    });
-                }
-
-                if (path.waypoints && Array.isArray(path.waypoints) && path.waypoints.length > 0) {
-                    return path.waypoints
-                        .filter(function(point) {
-                            return point && isFinite(point.lat) && isFinite(point.lng);
-                        })
-                        .map(function(point) {
-                            return [point.lat, point.lng];
-                        });
-                }
-
-                return [];
-            }
-
-            function sampleCoordinates(coords, maxSamples) {
-                if (!Array.isArray(coords) || coords.length === 0) {
-                    return [];
-                }
-
-                if (coords.length <= maxSamples) {
-                    return coords;
-                }
-
-                var sampled = [];
-                var step = (coords.length - 1) / (maxSamples - 1);
-                for (var i = 0; i < maxSamples; i++) {
-                    sampled.push(coords[Math.round(i * step)]);
-                }
-                return sampled;
-            }
-
-            function pickPathsForDirection(config, activeDirection) {
-                var paths = [];
-                if (!config) return paths;
-
-                if ((activeDirection === 'inbound' || activeDirection === 'both') && config.waypoints && config.waypoints.length >= 2) {
-                    paths.push({
-                        waypoints: config.waypoints,
-                        route: config.route
-                    });
-                }
-
-                if ((activeDirection === 'outbound' || activeDirection === 'both') && config.multiple_paths && Array.isArray(config.multiple_paths)) {
-                    config.multiple_paths.forEach(function(path) {
-                        if (path.waypoints && Array.isArray(path.waypoints) && path.waypoints.length >= 2) {
-                            paths.push({
-                                waypoints: path.waypoints,
-                                route: path.route
-                            });
-                        }
-                    });
-                }
-
-                return paths;
-            }
-
-            function buildRouteCacheKey(config, activeDirection) {
-                var routeId = config && config.id ? String(config.id) : (config.main_label || config.label || 'route');
-                return routeId + '|' + activeDirection;
-            }
-
-            function withTimeout(promise, timeoutMs, fallbackValue) {
-                return new Promise(function(resolve) {
-                    var settled = false;
-                    var timer = setTimeout(function() {
-                        if (settled) return;
-                        settled = true;
-                        resolve(fallbackValue);
-                    }, timeoutMs);
-
-                    promise
-                        .then(function(value) {
-                            if (settled) return;
-                            settled = true;
-                            clearTimeout(timer);
-                            resolve(value);
-                        })
-                        .catch(function() {
-                            if (settled) return;
-                            settled = true;
-                            clearTimeout(timer);
-                            resolve(fallbackValue);
-                        });
-                });
-            }
-
-            function fetchRoadNamesFromOsrm(paths) {
-                if (!Array.isArray(paths) || paths.length === 0) {
-                    return Promise.resolve([]);
-                }
-
-                var requests = paths.map(function(path) {
-                    if (!path.waypoints || !Array.isArray(path.waypoints) || path.waypoints.length < 2) {
-                        return Promise.resolve([]);
-                    }
-
-                    var coordsString = path.waypoints
-                        .filter(function(point) {
-                            return point && isFinite(point.lat) && isFinite(point.lng);
-                        })
-                        .map(function(point) {
-                            return point.lng + ',' + point.lat;
-                        })
-                        .join(';');
-
-                    if (!coordsString || coordsString.indexOf(';') === -1) {
-                        return Promise.resolve([]);
-                    }
-
-                    var url = 'https://router.project-osrm.org/route/v1/driving/' + coordsString + '?overview=false&steps=true';
-
-                    var osrmRequest = fetch(url, {
-                        headers: {
-                            'Accept': 'application/json'
-                        }
-                    })
-                        .then(function(resp) {
-                            if (!resp.ok) {
-                                throw new Error('OSRM lookup failed');
-                            }
-                            return resp.json();
-                        })
-                        .then(function(data) {
-                            var names = [];
-                            if (!data || !data.routes || !data.routes[0] || !Array.isArray(data.routes[0].legs)) {
-                                return names;
-                            }
-
-                            data.routes[0].legs.forEach(function(leg) {
-                                if (!leg || !Array.isArray(leg.steps)) return;
-                                leg.steps.forEach(function(step) {
-                                    var rawName = step && typeof step.name === 'string' ? step.name : '';
-                                    var normalized = normalizeRoadName(rawName);
-                                    if (!normalized) return;
-                                    if (/^unnamed road$/i.test(normalized)) return;
-                                    names.push(normalized);
-                                });
-                            });
-
-                            return names;
-                        })
-                        .catch(function() {
-                            return [];
-                        });
-
-                    return withTimeout(osrmRequest, 6000, []);
-                });
-
-                return Promise.all(requests).then(function(results) {
-                    var merged = [];
-                    results.forEach(function(item) {
-                        if (Array.isArray(item)) {
-                            merged = merged.concat(item);
-                        }
-                    });
-                    return merged;
-                });
-            }
-
-            function fetchRoadNamesFromServer(coordsToLookup) {
-                if (!frontendConfig.ajaxUrl || !Array.isArray(coordsToLookup) || coordsToLookup.length === 0) {
-                    return Promise.resolve([]);
-                }
-
-                var requestBody = new URLSearchParams();
-                requestBody.set('action', 'ph_map_lookup_roads');
-                requestBody.set('nonce', frontendConfig.nonce || '');
-                requestBody.set('coords', JSON.stringify(coordsToLookup));
-
-                var ajaxRequest = fetch(frontendConfig.ajaxUrl, {
-                    method: 'POST',
-                    credentials: 'same-origin',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                        'Accept': 'application/json'
-                    },
-                    body: requestBody.toString()
-                })
-                    .then(function(resp) {
-                        if (!resp.ok) {
-                            throw new Error('Road lookup failed');
-                        }
-                        return resp.json();
-                    })
-                    .then(function(payload) {
-                        if (!payload || payload.success !== true || !payload.data || !Array.isArray(payload.data.roads)) {
-                            return [];
-                        }
-                        return payload.data.roads;
-                    })
-                    .catch(function() {
-                        return [];
-                    });
-
-                return withTimeout(ajaxRequest, 6000, []);
-            }
-
-            function extractRoadNames(config, activeDirection) {
-                var paths = pickPathsForDirection(config, activeDirection);
-                if (paths.length === 0) {
-                    return Promise.resolve([]);
-                }
-
-                var cacheKey = buildRouteCacheKey(config, activeDirection);
-                if (Object.prototype.hasOwnProperty.call(roadListCache, cacheKey)) {
-                    return Promise.resolve(roadListCache[cacheKey]);
-                }
-
-                var coordsToLookup = [];
-                var maxTotalSamples = 12;
-                var maxPerPath = Math.max(3, Math.floor(maxTotalSamples / paths.length));
-
-                paths.forEach(function(path) {
-                    var coords = buildPathCoordinates(path);
-                    var sampled = sampleCoordinates(coords, Math.min(6, maxPerPath));
-                    sampled.forEach(function(coord) {
-                        coordsToLookup.push(coord);
-                    });
-                });
-
-                if (coordsToLookup.length > maxTotalSamples) {
-                    coordsToLookup = sampleCoordinates(coordsToLookup, maxTotalSamples);
-                }
-
-                return Promise.all([
-                    fetchRoadNamesFromOsrm(paths),
-                    fetchRoadNamesFromServer(coordsToLookup)
-                ]).then(function(resultSets) {
-                    var names = [];
-                    resultSets.forEach(function(set) {
-                        if (Array.isArray(set)) {
-                            names = names.concat(set);
-                        }
-                    });
-
-                    var seen = {};
-                    var unique = [];
-
-                    names.forEach(function(name) {
-                        var normalized = normalizeRoadName(name);
-                        if (!normalized) return;
-                        var key = normalized.toLowerCase();
-                        if (seen[key]) return;
-                        seen[key] = true;
-                        unique.push(normalized);
-                    });
-
-                    if (unique.length > 0) {
-                        roadListCache[cacheKey] = unique;
-                    }
-                    return unique;
-                });
-            }
-
-            function refreshRoadList(config, activeDirection, buttonEl) {
-                if (!buttonEl || !config) {
-                    return;
-                }
-
-                var requestId = ++roadLookupRequestId;
-                setButtonRoadListText(buttonEl, 'Loading road names...', true, true);
-
-                extractRoadNames(config, activeDirection).then(function(roads) {
-                    if (requestId !== roadLookupRequestId || activeButton !== buttonEl) {
-                        return;
-                    }
-
-                    if (!roads.length) {
-                        setButtonRoadListText(buttonEl, 'Road names are unavailable for this route right now.', true, true);
-                        return;
-                    }
-
-                    setButtonRoadListText(buttonEl, roads.join(' -> '), false, true);
-                }).catch(function() {
-                    if (requestId !== roadLookupRequestId || activeButton !== buttonEl) {
-                        return;
-                    }
-                    setButtonRoadListText(buttonEl, 'Road names are unavailable for this route right now.', true, true);
-                });
             }
 
             function setSelectionState(hasSelection) {
@@ -582,6 +266,7 @@
 
                 var currentMarkers = [];
                 var currentPaths = []; // Changed to array to hold multiple paths
+                var activeButton = null;
 
                 var cdoBounds = L.latLngBounds(
                     L.latLng(8.30, 124.47),
@@ -638,7 +323,6 @@
 
                     updateMapStatus('Select a route option to preview it on the map.');
                     updateSelectedRouteSummary(null, 'both');
-                    resetButtonRoadLists();
                     setSelectionState(false);
                 }
 
@@ -659,7 +343,6 @@
                     }
                     updateMapStatus('Previewing: ' + (config.main_label || config.label), directionSummary);
                     updateSelectedRouteSummary(config, activeDirection);
-                    refreshRoadList(config, activeDirection, buttonEl);
                     setSelectionState(true);
 
                     // Render based on active direction
@@ -742,8 +425,7 @@
                         main_label: 'All available routes',
                         via: ''
                     }, 'both');
-                    resetButtonRoadLists();
-                    setSelectionState(false);
+                    setSelectionState(true);
                     
                     var colorIndex = 0;
                     // More distinct color palette with better contrast
@@ -1120,7 +802,6 @@
                 }
 
                 updateSelectedRouteSummary(null, 'both');
-                resetButtonRoadLists();
                 setSelectionState(false);
             }
         
