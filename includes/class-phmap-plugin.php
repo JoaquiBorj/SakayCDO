@@ -98,7 +98,7 @@ class PHMapPlugin {
             route_data longtext NOT NULL,
             is_loop tinyint(1) NOT NULL DEFAULT 0,
             direction varchar(20) NOT NULL DEFAULT 'inbound',
-            color varchar(7) NOT NULL DEFAULT '#ff2f6d',
+            color varchar(7) NOT NULL DEFAULT '#e58f9f',
             route_type varchar(20) NOT NULL DEFAULT 'transportation',
             multiple_paths longtext NULL,
             sort_order int(11) NOT NULL DEFAULT 0,
@@ -242,7 +242,7 @@ class PHMapPlugin {
                     $sql = "ALTER TABLE {$this->table_name} ADD COLUMN direction VARCHAR(20) NOT NULL DEFAULT 'inbound'";
                     break;
                 case 'color':
-                    $sql = "ALTER TABLE {$this->table_name} ADD COLUMN color VARCHAR(7) NOT NULL DEFAULT '#ff2f6d'";
+                    $sql = "ALTER TABLE {$this->table_name} ADD COLUMN color VARCHAR(7) NOT NULL DEFAULT '#e58f9f'";
                     break;
                 case 'route_type':
                     $sql = "ALTER TABLE {$this->table_name} ADD COLUMN route_type VARCHAR(20) NOT NULL DEFAULT 'transportation'";
@@ -754,7 +754,7 @@ class PHMapPlugin {
         $route_data = $is_edit ? $button->route_data : '[]';
         $is_loop = $is_edit && isset($button->is_loop) ? (bool)$button->is_loop : false;
         $direction = $is_edit && isset($button->direction) ? $button->direction : 'inbound';
-        $color = $is_edit && isset($button->color) ? $button->color : '#ff2f6d';
+        $color = $is_edit && isset($button->color) ? $button->color : '#e58f9f';
         $from_location = $is_edit && isset($button->from_location) ? $button->from_location : '';
         $to_location = $is_edit && isset($button->to_location) ? $button->to_location : '';
         $description = $is_edit && isset($button->description) ? $button->description : '';
@@ -872,7 +872,7 @@ class PHMapPlugin {
         $multiple_paths_raw = isset($_POST['multiple_paths']) ? $_POST['multiple_paths'] : '';
         $is_loop = isset($_POST['is_loop']) ? 1 : 0;
         $direction = 'inbound'; // Always inbound for main path
-        $color = isset($_POST['color']) ? sanitize_hex_color($_POST['color']) : '#ff2f6d';
+        $color = isset($_POST['color']) ? sanitize_hex_color($_POST['color']) : '#e58f9f';
         $route_type = isset($_POST['route_type']) ? sanitize_text_field($_POST['route_type']) : 'transportation';
         
         // Validate route_type
@@ -1248,7 +1248,7 @@ class PHMapPlugin {
             'multiple_paths' => wp_json_encode($normalized_multiple_paths),
             'is_loop' => $is_loop,
             'direction' => $direction,
-            'color' => sanitize_hex_color(isset($route_data['color']) ? $route_data['color'] : '#ff2f6d') ?: '#ff2f6d',
+            'color' => sanitize_hex_color(isset($route_data['color']) ? $route_data['color'] : '#e58f9f') ?: '#e58f9f',
             'route_type' => $route_type,
             'updated_at' => current_time('mysql'),
         ];
@@ -1312,7 +1312,7 @@ class PHMapPlugin {
             'multiple_paths' => $multiple_paths_raw,
             'is_loop' => !empty($route['is_loop']),
             'direction' => isset($route['direction']) ? $route['direction'] : 'inbound',
-            'color' => isset($route['color']) ? $route['color'] : '#ff2f6d',
+            'color' => isset($route['color']) ? $route['color'] : '#e58f9f',
             'route_type' => isset($route['route_type']) ? $route['route_type'] : 'transportation',
         ];
     }
@@ -1407,7 +1407,7 @@ class PHMapPlugin {
             'multiple_paths' => $multiple_paths,
             'is_loop' => !empty($properties['is_loop']),
             'direction' => 'inbound',
-            'color' => isset($properties['color']) ? sanitize_hex_color($properties['color']) : '#ff2f6d',
+            'color' => isset($properties['color']) ? sanitize_hex_color($properties['color']) : '#e58f9f',
             'route_type' => isset($properties['route_type']) ? sanitize_text_field($properties['route_type']) : 'transportation',
         ];
     }
@@ -1605,13 +1605,14 @@ class PHMapPlugin {
             $meta = $build_route_meta($display_label, $description, $origin_name, $destination_name);
 
             return [
+                'id' => isset($btn->id) ? (int)$btn->id : 0,
                 'label' => $display_label,
                 'description' => $description,
                 'waypoints' => $waypoints,
                 'route' => $route,
                 'is_loop' => isset($btn->is_loop) ? (bool)$btn->is_loop : false,
                 'direction' => isset($btn->direction) ? $btn->direction : 'inbound',
-                'color' => isset($btn->color) ? $btn->color : '#ff2f6d',
+                'color' => isset($btn->color) ? $btn->color : '#e58f9f',
                 'route_type' => isset($btn->route_type) ? $btn->route_type : 'transportation',
                 'multiple_paths' => $multiple_paths,
                 'variant_code' => isset($btn->variant_code) ? $btn->variant_code : '',

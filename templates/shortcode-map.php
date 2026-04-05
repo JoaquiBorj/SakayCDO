@@ -64,9 +64,10 @@
                     $color = $button['color'];
                     $description = $button['description'];
                     $route_type = $button['route_type'];
+                    $variant_code = isset($button['variant_code']) ? trim((string)$button['variant_code']) : '';
+                    $route_label = $variant_code !== '' ? strtoupper($variant_code) : 'ROUTE';
                     $has_inbound = $button['has_inbound'];
                     $has_outbound = $button['has_outbound'];
-                    $badge_label = 'Route';
                     $route_kind = $route_type === 'personal' ? 'Personal' : 'Jeepney';
                     $route_summary = '';
                     if (!empty($button['start']) && !empty($button['end'])) {
@@ -86,7 +87,7 @@
                             title="<?php echo esc_attr($description); ?>">
                         <div class="phmap-btn-content">
                             <div class="phmap-btn-top">
-                                <div class="phmap-btn-badge"><?php echo esc_html($badge_label); ?><?php if ($is_loop): ?> | Loop<?php endif; ?></div>
+                                <div class="phmap-btn-badge"><?php echo esc_html($route_label); ?><?php if ($is_loop): ?> | LOOP<?php endif; ?></div>
                                 <div class="phmap-btn-kind"><?php echo esc_html($route_kind); ?></div>
                             </div>
                             <div class="phmap-btn-title"><?php echo esc_html($button['main_label']); ?></div>

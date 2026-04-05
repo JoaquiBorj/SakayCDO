@@ -276,6 +276,29 @@
                 map.setMaxBounds(cdoBounds);
                 map.options.maxBoundsViscosity = 1.0;
 
+                function softenHexColor(hex, amount) {
+                    amount = typeof amount === 'number' ? amount : 0.35;
+                    var normalized = (hex || '').replace('#', '').trim();
+                    if (!/^[0-9a-fA-F]{6}$/.test(normalized)) {
+                        return '#1565C0';
+                    }
+
+                    var r = parseInt(normalized.slice(0, 2), 16);
+                    var g = parseInt(normalized.slice(2, 4), 16);
+                    var b = parseInt(normalized.slice(4, 6), 16);
+
+                    var soften = function(channel) {
+                        return Math.round(channel + (255 - channel) * amount);
+                    };
+
+                    var toHex = function(channel) {
+                        var value = soften(channel).toString(16);
+                        return value.length === 1 ? '0' + value : value;
+                    };
+
+                    return '#' + toHex(r) + toHex(g) + toHex(b);
+                }
+
                 function clearCurrentPath(){
                     currentMarkers.forEach(function(m){ map.removeLayer(m); });
                     currentMarkers = [];
@@ -307,7 +330,7 @@
                     clearCurrentPath();
                     activeButton = buttonEl;
                     buttonEl.classList.add('active');
-                    buttonEl.style.setProperty('--route-accent', config.color || '#1565C0');
+                    buttonEl.style.setProperty('--route-accent', softenHexColor(config.color || '#1565C0', 0.35));
 
                     console.log('showPath called with direction:', activeDirection);
                     console.log('Config:', config);
@@ -331,7 +354,7 @@
                                 config.waypoints,
                                 config.route,
                                 'inbound',
-                                '#dc3545', // Red
+                                '#c97a8a', // Soft red
                                 config.is_loop,
                                 config.label + ' - Inbound',
                                 0
@@ -363,7 +386,7 @@
                                 config.waypoints,
                                 config.route,
                                 'inbound',
-                                '#dc3545', // Red
+                                '#c97a8a', // Soft red
                                 config.is_loop,
                                 config.label + ' - Inbound',
                                 0
