@@ -1,9 +1,9 @@
 
 
-<?php if (!wp_style_is('phmap-frontend', 'done')): ?>
+<?php if (!wp_style_is('phmap-frontend', 'done') && !wp_style_is('phmap-frontend', 'enqueued')): ?>
     <link rel="stylesheet" href="<?php echo esc_url($this->plugin_url . 'assets/css/frontend.css?ver=' . rawurlencode($this->assets_version)); ?>">
 <?php endif; ?>
-<?php if (!wp_style_is('phmap-leaflet', 'done')): ?>
+<?php if (!wp_style_is('phmap-leaflet', 'done') && !wp_style_is('phmap-leaflet', 'enqueued')): ?>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <?php endif; ?>
 

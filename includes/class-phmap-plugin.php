@@ -1799,6 +1799,30 @@ class PHMapPlugin {
         if ($height === '') { $height = '600px'; }
         $zoom = max(3, min(18, (int)$atts['zoom']));
 
+        $cache_signature = $wpdb->get_row(
+            "SELECT COUNT(*) AS total_routes, MAX(updated_at) AS max_updated_at, MAX(id) AS max_id FROM {$this->table_name}",
+            ARRAY_A
+        );
+        if (!is_array($cache_signature)) {
+            $cache_signature = [
+                'total_routes' => 0,
+                'max_updated_at' => '',
+                'max_id' => 0,
+            ];
+        }
+
+        $shortcode_cache_key = 'ph_map_button_view_' . md5(wp_json_encode($cache_signature));
+        $cached_button_view_data = get_transient($shortcode_cache_key);
+        if (is_array($cached_button_view_data)) {
+            return $this->render_template('shortcode-map.php', [
+                'id' => $id,
+                'mapId' => $mapId,
+                'height' => $height,
+                'zoom' => $zoom,
+                'button_view_data' => $cached_button_view_data,
+            ]);
+        }
+
         $build_route_meta = function($display_label, $description, $start, $end) {
             $clean_label = trim(preg_replace('/\s+/', ' ', wp_strip_all_tags((string)$display_label)));
             $clean_description = trim(preg_replace('/\s+/', ' ', wp_strip_all_tags((string)$description)));
@@ -1927,6 +1951,8 @@ class PHMapPlugin {
                 ])))),
             ];
         }, $buttons);
+
+        set_transient($shortcode_cache_key, $button_view_data, 6 * HOUR_IN_SECONDS);
 
         return $this->render_template('shortcode-map.php', [
             'id' => $id,
