@@ -354,7 +354,7 @@
                                 config.waypoints,
                                 config.route,
                                 'inbound',
-                                '#c97a8a', // Soft red
+                                '#ef4444', // Bright red
                                 config.is_loop,
                                 config.label + ' - Inbound',
                                 0
@@ -386,7 +386,7 @@
                                 config.waypoints,
                                 config.route,
                                 'inbound',
-                                '#c97a8a', // Soft red
+                                '#ef4444', // Bright red
                                 config.is_loop,
                                 config.label + ' - Inbound',
                                 0
@@ -580,31 +580,6 @@
                     
                     var pathPolyline = L.polyline(offsetRoute, routeStyle).addTo(map);
                     currentPaths.push(pathPolyline);
-
-                    if (offsetRoute.length > 0) {
-                        var startpoint = offsetRoute[0];
-                        var startpointMarker = L.circleMarker(startpoint, {
-                            radius: 8,
-                            color: '#ffffff',
-                            weight: 2,
-                            fillColor: '#22c55e',
-                            fillOpacity: 0.95
-                        }).addTo(map);
-                        currentMarkers.push(startpointMarker);
-                    }
-
-                    // Highlight the endpoint of each shown path in pink for better visibility.
-                    if (offsetRoute.length > 0) {
-                        var endpoint = offsetRoute[offsetRoute.length - 1];
-                        var endpointMarker = L.circleMarker(endpoint, {
-                            radius: 8,
-                            color: '#ffffff',
-                            weight: 2,
-                            fillColor: '#ff2f92',
-                            fillOpacity: 0.95
-                        }).addTo(map);
-                        currentMarkers.push(endpointMarker);
-                    }
                 }
 
                 var pathButtons = root.querySelectorAll('.phmap-path-btn');
