@@ -141,7 +141,7 @@
                     inbound: {
                         waypoints: [],
                         route: [],
-                        color: '#dc3545' // Red
+                        color: '#ef4444' // Bright red
                     },
                     outbound: {
                         waypoints: [],
